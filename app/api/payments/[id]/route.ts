@@ -7,24 +7,47 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    const { amountDue, amountPaid, dueDate, paymentDate, status: statusOverride } = await request.json();
+    const { rentAmount, amountDue, amountPaid, dueDate, paymentDate, status: statusOverride, serviceCharges } = await request.json();
 
-    const due  = parseFloat(amountDue);
-    const paid = parseFloat(amountPaid) || 0;
-    const balance = due - paid;
-    const status: PaymentStatus = statusOverride ?? (paid >= due ? 'PAID' : 'PENDING');
+    // Recalculate totals server-side so all sections stay consistent
+    const charges: { serviceId: number; units?: number; amount: number }[] = serviceCharges ?? [];
+    const servicesTotal = charges.reduce((sum, c) => sum + Number(c.amount), 0);
+
+    const rent    = rentAmount != null ? Number(rentAmount) : null;
+    const due     = amountDue  != null ? Number(amountDue)  : (rent != null ? rent + servicesTotal : null);
+    const paid    = parseFloat(amountPaid) || 0;
+    const balance = (due ?? 0) - paid;
+    const status: PaymentStatus = statusOverride ?? (paid >= (due ?? 0) ? 'PAID' : 'PENDING');
+
+    // If serviceCharges were provided, replace existing charges
+    const servicesUpdate = serviceCharges != null ? {
+      services: {
+        deleteMany: {},
+        create: charges.map(c => ({
+          serviceId: c.serviceId,
+          units:     c.units ?? null,
+          amount:    c.amount,
+        })),
+      },
+    } : {};
 
     const payment = await prisma.payment.update({
       where: { id: parseInt(id) },
       data: {
-        amountDue: due,
+        ...(rent  != null && { rentAmount: rent }),
+        ...(due   != null && { amountDue: due }),
         amountPaid: paid,
         balance,
         status,
-        dueDate: new Date(dueDate),
+        dueDate:     new Date(dueDate),
         paymentDate: paymentDate ? new Date(paymentDate) : null,
+        ...servicesUpdate,
       },
-      include: { tenant: true, unit: { include: { houseType: true } } },
+      include: {
+        tenant: true,
+        unit: { include: { houseType: true } },
+        services: { include: { service: true } },
+      },
     });
 
     return Response.json(payment);

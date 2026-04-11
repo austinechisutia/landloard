@@ -4,7 +4,13 @@ import { PrismaPg } from '@prisma/adapter-pg';
 const connectionString = process.env.DATABASE_URL!;
 
 function createPrismaClient() {
-  const adapter = new PrismaPg({ connectionString });
+  // Let the connection string drive SSL (sslmode=require in URL handles it).
+  // Only add rejectUnauthorized:false as a fallback for self-signed certs in prod.
+  const sslConfig = connectionString?.includes('sslmode=require')
+    ? { rejectUnauthorized: false }
+    : false;
+
+  const adapter = new PrismaPg({ connectionString, ssl: sslConfig });
   return new PrismaClient({ adapter });
 }
 

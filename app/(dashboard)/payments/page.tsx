@@ -40,10 +40,10 @@ interface Payment {
   paymentDate: string | null;
   tenant: { name: string };
   unit: { name: string };
-  services: { service: { name: string }; units: number | null; amount: number }[];
+  services: { serviceId: number; service: { name: string }; units: number | null; amount: number }[];
 }
 
-const blank = { tenantId: '', amountPaid: '', dueDate: '', paymentDate: '' };
+const blank = { tenantId: '', rentAmount: '', amountPaid: '', dueDate: '', paymentDate: '' };
 type Filter = '' | 'PAID' | 'PENDING';
 
 export default function PaymentsPage() {
@@ -94,7 +94,10 @@ export default function PaymentsPage() {
   };
 
   const selectedTenant = tenants.find(t => String(t.id) === form.tenantId);
-  const rent = Number(selectedTenant?.unit.houseType.rentAmount ?? 0);
+  // In edit mode, rent comes from the editable form field; in add mode, from the selected tenant
+  const rent = editing
+    ? (parseFloat(form.rentAmount) || 0)
+    : Number(selectedTenant?.unit.houseType.rentAmount ?? 0);
   const servicesTotal = charges.filter(c => c.included).reduce((s, c) => s + c.amount, 0);
   const totalDue = rent + servicesTotal;
   const paid = parseFloat(form.amountPaid) || 0;
@@ -128,11 +131,18 @@ export default function PaymentsPage() {
     setEditing(p);
     setForm({
       tenantId:    String(p.tenantId),
-      amountPaid:  String(p.amountPaid),
+      rentAmount:  String(Number(p.rentAmount)),
+      amountPaid:  String(Number(p.amountPaid)),
       dueDate:     p.dueDate?.split('T')[0]     || '',
       paymentDate: p.paymentDate?.split('T')[0] || '',
     });
-    setCharges(initCharges(services));
+    // Restore charges from the existing payment's service records
+    setCharges(p.services.map(c => ({
+      serviceId: c.serviceId,
+      units:     c.units != null ? String(c.units) : '',
+      amount:    Number(c.amount),
+      included:  true,
+    })));
     setShowModal(true);
   };
 
@@ -146,11 +156,16 @@ export default function PaymentsPage() {
         .map(c => ({ serviceId: c.serviceId, units: parseFloat(c.units) || undefined, amount: c.amount }));
 
       if (editing) {
+        const serviceCharges = charges
+          .filter(c => c.included && c.amount > 0)
+          .map(c => ({ serviceId: c.serviceId, units: parseInt(c.units) || undefined, amount: c.amount }));
         await api.patch(`/payments/${editing.id}`, {
-          amountDue:   Number(editing.amountDue),
-          amountPaid:  paid,
-          dueDate:     form.dueDate,
-          paymentDate: form.paymentDate || null,
+          rentAmount:    rent,
+          amountDue:     totalDue,
+          amountPaid:    paid,
+          dueDate:       form.dueDate,
+          paymentDate:   form.paymentDate || null,
+          serviceCharges,
         });
       } else {
         await api.post('/payments', {
@@ -185,7 +200,7 @@ export default function PaymentsPage() {
     setPayments(prev => prev.map(x => x.id === id ? { ...x, status, amountPaid, balance } : x));
     try {
       await api.patch(`/payments/${id}`, {
-        amountDue: due, amountPaid, dueDate: p.dueDate, paymentDate: p.paymentDate, status,
+        rentAmount: Number(p.rentAmount), amountDue: due, amountPaid, dueDate: p.dueDate, paymentDate: p.paymentDate, status,
       });
       load();
     } catch (err) {
@@ -341,13 +356,25 @@ export default function PaymentsPage() {
               </select>
             </div>
 
-            {/* Rent info */}
-            {selectedTenant && (
+            {/* Rent info (add mode) or editable rent (edit mode) */}
+            {editing ? (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Rent Amount (KSh)</label>
+                <input
+                  type="number"
+                  value={form.rentAmount}
+                  onChange={e => setForm(f => ({ ...f, rentAmount: e.target.value }))}
+                  min="0" step="100"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  required
+                />
+              </div>
+            ) : selectedTenant ? (
               <div className="bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2 text-xs text-indigo-700">
                 Unit <strong>{selectedTenant.unit.name}</strong> · Rent:{' '}
                 <strong>KSh {Number(selectedTenant.unit.houseType.rentAmount).toLocaleString()}</strong>
               </div>
-            )}
+            ) : null}
 
             {/* Services */}
             {!editing && charges.length > 0 && (
@@ -394,8 +421,42 @@ export default function PaymentsPage() {
               </div>
             )}
 
-            {/* Totals summary */}
-            {!editing && selectedTenant && (
+            {/* Edit mode: show existing service charges as editable amounts */}
+            {editing && charges.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-gray-700">Service Charges</p>
+                <div className="border border-gray-200 rounded-lg divide-y divide-gray-100">
+                  {charges.map((c, i) => {
+                    const svc = services.find(s => s.id === c.serviceId);
+                    return (
+                      <div key={i} className="flex items-center gap-3 px-3 py-2.5">
+                        <span className="flex-1 text-sm text-gray-700">{svc?.name ?? `Service #${c.serviceId}`}</span>
+                        <div className="flex items-center gap-1.5">
+                          {c.units !== '' && (
+                            <>
+                              <input
+                                type="number"
+                                value={c.units}
+                                onChange={e => updateCharge(c.serviceId, 'units', e.target.value)}
+                                min="0" step="1"
+                                className="w-16 border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                              />
+                              <span className="text-xs text-gray-400">{svc?.unitLabel ?? 'units'} ×</span>
+                            </>
+                          )}
+                          <span className="text-xs font-medium text-gray-700 w-20 text-right">
+                            KSh {c.amount.toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Totals summary — show in both add and edit mode */}
+            {(editing || selectedTenant) && (
               <div className="bg-gray-50 rounded-lg px-3 py-2.5 space-y-1 text-sm">
                 <div className="flex justify-between text-gray-600">
                   <span>Rent</span>
@@ -430,7 +491,7 @@ export default function PaymentsPage() {
                 />
               </div>
               <div className="flex flex-col justify-end pb-0.5">
-                {totalDue > 0 && !editing && (
+                {totalDue > 0 && (
                   <div className="flex items-center justify-between bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm">
                     <span className={`font-semibold ${balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
                       Balance: KSh {balance.toLocaleString()}

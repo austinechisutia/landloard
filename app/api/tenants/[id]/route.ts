@@ -15,28 +15,25 @@ export async function PATCH(
 
     const unitChanged = parseInt(unitId) !== existing.unitId;
 
-    const ops: Parameters<typeof prisma.$transaction>[0] = [
-      prisma.tenant.update({
+    const tenant = await prisma.$transaction(async (tx) => {
+      const updated = await tx.tenant.update({
         where: { id: parseInt(id) },
         data: {
           name,
           phone,
           houseTypeId: parseInt(houseTypeId),
-          unitId: parseInt(unitId),
-          moveInDate: new Date(moveInDate),
+          unitId:      parseInt(unitId),
+          moveInDate:  new Date(moveInDate),
         },
         include: { houseType: true, unit: true },
-      }),
-    ];
+      });
+      if (unitChanged) {
+        await tx.unit.update({ where: { id: existing.unitId   }, data: { status: 'VACANT'   } });
+        await tx.unit.update({ where: { id: parseInt(unitId) }, data: { status: 'OCCUPIED' } });
+      }
+      return updated;
+    });
 
-    if (unitChanged) {
-      ops.push(
-        prisma.unit.update({ where: { id: existing.unitId },     data: { status: 'VACANT'   } }),
-        prisma.unit.update({ where: { id: parseInt(unitId) },    data: { status: 'OCCUPIED' } }),
-      );
-    }
-
-    const [tenant] = await prisma.$transaction(ops);
     return Response.json(tenant);
   } catch {
     return Response.json({ error: 'Failed to update tenant' }, { status: 500 });
@@ -54,13 +51,10 @@ export async function DELETE(
       return Response.json({ error: 'Tenant not found' }, { status: 404 });
     }
 
-    await prisma.$transaction([
-      prisma.tenant.delete({ where: { id: parseInt(id) } }),
-      prisma.unit.update({
-        where: { id: tenant.unitId },
-        data: { status: 'VACANT' },
-      }),
-    ]);
+    await prisma.$transaction(async (tx) => {
+      await tx.tenant.delete({ where: { id: parseInt(id) } });
+      await tx.unit.update({ where: { id: tenant.unitId }, data: { status: 'VACANT' } });
+    });
 
     return Response.json({ ok: true });
   } catch {
