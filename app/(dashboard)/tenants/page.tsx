@@ -17,15 +17,6 @@ interface Unit {
   houseTypeId: number;
 }
 
-interface Service {
-  id: number;
-  name: string;
-  type: 'FIXED' | 'PER_UNIT';
-  unitPrice: number;
-  unitLabel: string | null;
-  active: boolean;
-}
-
 interface Tenant {
   id: number;
   name: string;
@@ -35,70 +26,45 @@ interface Tenant {
   moveInDate: string;
   houseType: HouseType;
   unit: Unit;
-  payments: { id: number; status: 'PAID' | 'PENDING'; dueDate: string; amountDue: number; amountPaid: number; paymentDate: string | null }[];
+  payments: {
+    id: number;
+    status: 'PAID' | 'PENDING';
+    dueDate: string;
+    rentAmount: number;
+    amountDue: number;
+    amountPaid: number;
+    paymentDate: string | null;
+    services: { amount: number; service: { name: string } }[];
+  }[];
 }
 
 const blank = { name: '', phone: '', houseTypeId: '', unitId: '', moveInDate: '' };
 
-// meterReadings[tenantId][serviceId] = units string
-type MeterReadings = Record<number, Record<number, string>>;
-
 export default function TenantsPage() {
-  const [tenants,       setTenants]       = useState<Tenant[]>([]);
-  const [types,         setTypes]         = useState<HouseType[]>([]);
-  const [services,      setServices]      = useState<Service[]>([]);
-  const [units,         setUnits]         = useState<Unit[]>([]);
-  const [loading,       setLoading]       = useState(true);
-  const [showModal,     setShowModal]     = useState(false);
-  const [editing,       setEditing]       = useState<Tenant | null>(null);
-  const [form,          setForm]          = useState(blank);
-  const [loadingUnits,  setLoadingUnits]  = useState(false);
-  const [submitting,    setSubmitting]    = useState(false);
-  const [deleteId,      setDeleteId]      = useState<number | null>(null);
-  const [toast,         setToast]         = useState<string | null>(null);
-  const [meterReadings, setMeterReadings] = useState<MeterReadings>(() => {
-    try {
-      const saved = localStorage.getItem('landlord_meter_readings');
-      return saved ? JSON.parse(saved) : {};
-    } catch { return {}; }
-  });
+  const [tenants,      setTenants]      = useState<Tenant[]>([]);
+  const [types,        setTypes]        = useState<HouseType[]>([]);
+  const [units,        setUnits]        = useState<Unit[]>([]);
+  const [loading,      setLoading]      = useState(true);
+  const [showModal,    setShowModal]    = useState(false);
+  const [editing,      setEditing]      = useState<Tenant | null>(null);
+  const [form,         setForm]         = useState(blank);
+  const [loadingUnits, setLoadingUnits] = useState(false);
+  const [submitting,   setSubmitting]   = useState(false);
+  const [deleteId,     setDeleteId]     = useState<number | null>(null);
+  const [toast,        setToast]        = useState<string | null>(null);
 
   const load = () => {
     setLoading(true);
     Promise.all([
       api.get<Tenant[]>('/tenants'),
       api.get<HouseType[]>('/house-types'),
-      api.get<Service[]>('/services'),
     ])
-      .then(([t, ht, svc]) => { setTenants(t); setTypes(ht); setServices(svc); })
+      .then(([t, ht]) => { setTenants(t); setTypes(ht); })
       .finally(() => setLoading(false));
   };
 
   useEffect(() => { load(); }, []);
 
-  const activeFixed   = services.filter(s => s.active && s.type === 'FIXED');
-  const activePerUnit = services.filter(s => s.active && s.type === 'PER_UNIT');
-  const fixedTotal    = activeFixed.reduce((sum, s) => sum + Number(s.unitPrice), 0);
-
-  const setReading = (tenantId: number, serviceId: number, value: string) => {
-    setMeterReadings(prev => {
-      const next = {
-        ...prev,
-        [tenantId]: { ...(prev[tenantId] ?? {}), [serviceId]: value },
-      };
-      try { localStorage.setItem('landlord_meter_readings', JSON.stringify(next)); } catch {}
-      return next;
-    });
-  };
-
-  const getMeterTotal = (tenantId: number) =>
-    activePerUnit.reduce((sum, s) => {
-      const raw = meterReadings[tenantId]?.[s.id] ?? '';
-      const qty = parseInt(raw) || 0;
-      return sum + qty * Number(s.unitPrice);
-    }, 0);
-
-  // Fetch vacant units for a type, optionally including a specific unit (for edit mode)
   const fetchUnits = async (typeId: string, includeUnitId?: number) => {
     if (!typeId) { setUnits([]); return; }
     setLoadingUnits(true);
@@ -216,19 +182,6 @@ export default function TenantsPage() {
         </button>
       </div>
 
-      {/* Active services summary banner */}
-      {services.filter(s => s.active).length > 0 && (
-        <div className="bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3 flex flex-wrap gap-x-5 gap-y-1.5 text-xs text-indigo-700">
-          <span className="font-semibold text-indigo-800">Active services:</span>
-          {activeFixed.map(s => (
-            <span key={s.id}>{s.name} — KSh {Number(s.unitPrice).toLocaleString()}</span>
-          ))}
-          {activePerUnit.map(s => (
-            <span key={s.id}>{s.name} — KSh {Number(s.unitPrice).toLocaleString()}/{s.unitLabel ?? 'unit'} (meter)</span>
-          ))}
-        </div>
-      )}
-
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         {loading ? (
           <div className="p-10 text-center text-sm text-gray-400">Loading…</div>
@@ -244,7 +197,7 @@ export default function TenantsPage() {
                   <th className="text-left px-6 py-3 text-gray-500 font-medium">Unit</th>
                   <th className="text-right px-6 py-3 text-gray-500 font-medium">Rent (KSh)</th>
                   <th className="text-left px-6 py-3 text-gray-500 font-medium">Services</th>
-                  <th className="text-right px-6 py-3 text-gray-500 font-medium">Total/mo</th>
+                  <th className="text-right px-6 py-3 text-gray-500 font-medium">Total</th>
                   <th className="text-left px-6 py-3 text-gray-500 font-medium">Move-in</th>
                   <th className="text-left px-6 py-3 text-gray-500 font-medium">Payment</th>
                   <th className="text-right px-6 py-3 text-gray-500 font-medium">Actions</th>
@@ -252,9 +205,10 @@ export default function TenantsPage() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {tenants.map(t => {
-                  const rent       = Number(t.houseType.rentAmount);
-                  const meterTotal = getMeterTotal(t.id);
-                  const total      = rent + fixedTotal + meterTotal;
+                  const p         = t.payments[0] ?? null;
+                  const rent      = p ? Number(p.rentAmount) : Number(t.houseType.rentAmount);
+                  const svcTotal  = p ? p.services.reduce((s, c) => s + Number(c.amount), 0) : 0;
+                  const total     = p ? Number(p.amountDue) : rent;
                   return (
                     <tr key={t.id} className="hover:bg-gray-50 align-top">
                       <td className="px-6 py-3.5">
@@ -263,78 +217,46 @@ export default function TenantsPage() {
                       </td>
                       <td className="px-6 py-3.5 text-gray-600">{t.phone}</td>
                       <td className="px-6 py-3.5 font-semibold text-gray-900">{t.unit.name}</td>
-                      <td className="px-6 py-3.5 text-right text-gray-700">
-                        {rent.toLocaleString()}
-                      </td>
-                      <td className="px-6 py-3.5 min-w-[200px]">
-                        {services.filter(s => s.active).length === 0 ? (
+                      <td className="px-6 py-3.5 text-right text-gray-700">{rent.toLocaleString()}</td>
+                      <td className="px-6 py-3.5">
+                        {!p || p.services.length === 0 ? (
                           <span className="text-gray-400 text-xs">—</span>
                         ) : (
-                          <div className="space-y-1.5">
-                            {activeFixed.map(s => (
-                              <div key={s.id} className="flex items-center gap-1.5 text-xs">
+                          <div className="space-y-0.5">
+                            {p.services.map((c, i) => (
+                              <div key={i} className="flex items-center gap-1.5 text-xs">
                                 <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0" />
-                                <span className="text-gray-600">{s.name}</span>
-                                <span className="text-gray-500 ml-auto pl-3 font-medium">+{Number(s.unitPrice).toLocaleString()}</span>
+                                <span className="text-gray-600">{c.service.name}</span>
+                                <span className="text-gray-500 ml-auto pl-3 font-medium">
+                                  +{Number(c.amount).toLocaleString()}
+                                </span>
                               </div>
                             ))}
-                            {activePerUnit.map(s => {
-                              const reading = meterReadings[t.id]?.[s.id] ?? '';
-                              const qty     = parseInt(reading) || 0;
-                              const cost    = qty * Number(s.unitPrice);
-                              return (
-                                <div key={s.id} className="space-y-0.5">
-                                  <div className="flex items-center gap-1.5 text-xs">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-                                    <span className="text-gray-600">{s.name}</span>
-                                  </div>
-                                  <div className="flex items-center gap-1.5 pl-3">
-                                    <input
-                                      type="number"
-                                      value={reading}
-                                      onChange={e => setReading(t.id, s.id, e.target.value)}
-                                      placeholder="0"
-                                      min="0"
-                                      step="1"
-                                      className="w-16 border border-gray-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-amber-400"
-                                    />
-                                    <span className="text-xs text-gray-400">{s.unitLabel ?? 'units'}</span>
-                                    {qty > 0 && (
-                                      <span className="text-xs text-amber-700 font-medium ml-auto">
-                                        +{cost.toLocaleString()}
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                              );
-                            })}
                           </div>
                         )}
                       </td>
                       <td className="px-6 py-3.5 text-right">
                         <div className="font-semibold text-gray-900">{total.toLocaleString()}</div>
-                        <div className="text-xs text-gray-400 mt-0.5">
-                          {rent.toLocaleString()}
-                          {fixedTotal > 0 && ` + ${fixedTotal.toLocaleString()}`}
-                          {meterTotal > 0 && ` + ${meterTotal.toLocaleString()}`}
-                        </div>
+                        {svcTotal > 0 && (
+                          <div className="text-xs text-gray-400 mt-0.5">
+                            {rent.toLocaleString()} + {svcTotal.toLocaleString()}
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-3.5 text-gray-600">
                         {new Date(t.moveInDate).toLocaleDateString()}
                       </td>
                       <td className="px-6 py-3.5">
-                        {t.payments.length === 0 ? (
+                        {!p ? (
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">
                             No payments
                           </span>
                         ) : (
                           <select
-                            value={t.payments[0].status}
-                            onChange={e => updatePaymentStatus(t.id, t.payments[0], e.target.value as 'PAID' | 'PENDING')}
+                            value={p.status}
+                            onChange={e => updatePaymentStatus(t.id, p, e.target.value as 'PAID' | 'PENDING')}
                             className={`text-xs font-medium rounded-full px-2.5 py-0.5 border-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                              t.payments[0].status === 'PAID'
-                                ? 'bg-green-100 text-green-700'
-                                : 'bg-red-100 text-red-700'
+                              p.status === 'PAID' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                             }`}
                           >
                             <option value="PAID">Paid</option>
@@ -427,9 +349,7 @@ export default function TenantsPage() {
                 ))}
               </select>
               {form.houseTypeId && !loadingUnits && units.length === 0 && (
-                <p className="text-xs text-amber-600 mt-1">
-                  No vacant units for this type. Add more units first.
-                </p>
+                <p className="text-xs text-amber-600 mt-1">No vacant units for this type. Add more units first.</p>
               )}
             </div>
             <div>
@@ -458,9 +378,7 @@ export default function TenantsPage() {
 
       {deleteId !== null && (
         <Modal title="Remove Tenant" onClose={() => setDeleteId(null)}>
-          <p className="text-sm text-gray-600 mb-6">
-            Remove this tenant? Their unit will be marked as vacant.
-          </p>
+          <p className="text-sm text-gray-600 mb-6">Remove this tenant? Their unit will be marked as vacant.</p>
           <div className="flex gap-3">
             <button onClick={() => setDeleteId(null)}
               className="flex-1 border border-gray-300 text-gray-700 rounded-lg py-2 text-sm hover:bg-gray-50 transition-colors">

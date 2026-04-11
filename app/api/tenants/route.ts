@@ -9,7 +9,11 @@ export async function GET() {
         payments: {
           orderBy: { dueDate: 'desc' },
           take: 1,
-          select: { id: true, status: true, dueDate: true, amountDue: true, amountPaid: true, paymentDate: true },
+          select: {
+            id: true, status: true, dueDate: true,
+            rentAmount: true, amountDue: true, amountPaid: true, paymentDate: true,
+            services: { select: { amount: true, service: { select: { name: true } } } },
+          },
         },
       },
       orderBy: { createdAt: 'desc' },

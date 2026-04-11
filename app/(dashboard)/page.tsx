@@ -8,6 +8,7 @@ interface Stats {
   occupiedUnits: number;
   vacantUnits: number;
   totalTenants: number;
+  totalPayments: number;
   totalRentPaid: number;
   thisMonthRent: number;
   totalPendingRent: number;
@@ -50,15 +51,16 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-        <StatsCard title="Total Units"   value={stats.totalUnits}    color="blue"   />
-        <StatsCard title="Occupied"      value={stats.occupiedUnits} color="green"  />
-        <StatsCard title="Vacant"        value={stats.vacantUnits}   color="yellow" />
-        <StatsCard title="Total Tenants" value={stats.totalTenants}  color="blue"   />
+        <StatsCard title="Total Units"    value={stats.totalUnits}     color="blue"   />
+        <StatsCard title="Occupied"       value={stats.occupiedUnits}  color="green"  />
+        <StatsCard title="Vacant"         value={stats.vacantUnits}    color="yellow" />
+        <StatsCard title="Total Tenants"  value={stats.totalTenants}   color="blue"   />
+        <StatsCard title="Total Payments" value={stats.totalPayments}  color="blue"   />
 
         <StatsCard
           title="Rent Collected"
-          value={fmt(stats.thisMonthRent)}
-          sub={`${monthLabel} · All-time: ${fmt(stats.totalRentPaid)}`}
+          value={fmt(stats.totalRentPaid)}
+          sub={`${monthLabel}: ${fmt(stats.thisMonthRent)}`}
           color="green"
         />
 

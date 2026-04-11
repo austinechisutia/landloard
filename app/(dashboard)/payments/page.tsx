@@ -112,7 +112,7 @@ export default function PaymentsPage() {
       if (field === 'included') return { ...c, included: value as boolean };
       // units changed — recalculate amount
       const svc = services.find(s => s.id === serviceId)!;
-      const units = parseFloat(value as string) || 0;
+      const units = parseInt(value as string) || 0;
       return { ...c, units: value as string, amount: units * Number(svc.unitPrice), included: units > 0 };
     }));
   };
@@ -238,7 +238,6 @@ export default function PaymentsPage() {
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
                   <th className="text-left px-6 py-3 text-gray-500 font-medium">Tenant</th>
-                  <th className="text-left px-6 py-3 text-gray-500 font-medium">Unit</th>
                   <th className="text-right px-6 py-3 text-gray-500 font-medium">Rent</th>
                   <th className="text-right px-6 py-3 text-gray-500 font-medium">Services</th>
                   <th className="text-right px-6 py-3 text-gray-500 font-medium">Total Due</th>
@@ -249,13 +248,32 @@ export default function PaymentsPage() {
                   <th className="text-right px-6 py-3 text-gray-500 font-medium">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
-                {payments.map(p => {
+              <tbody>
+                {(() => {
+                  // Group payments by tenantId, preserving order of first appearance
+                  const groups: { tenantId: number; rows: typeof payments }[] = [];
+                  const seen = new Map<number, typeof payments>();
+                  for (const p of payments) {
+                    if (!seen.has(p.tenantId)) {
+                      const rows: typeof payments = [];
+                      seen.set(p.tenantId, rows);
+                      groups.push({ tenantId: p.tenantId, rows });
+                    }
+                    seen.get(p.tenantId)!.push(p);
+                  }
+                  return groups.map(({ rows }) =>
+                    rows.map((p, rowIdx) => {
                   const svcTotal = p.services.reduce((s, c) => s + Number(c.amount), 0);
+                  const isFirst  = rowIdx === 0;
+                  const span     = rows.length;
                   return (
-                    <tr key={p.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-3.5 font-medium text-gray-900">{p.tenant.name}</td>
-                      <td className="px-6 py-3.5 text-gray-600">{p.unit.name}</td>
+                    <tr key={p.id} className={`hover:bg-gray-50 ${rowIdx > 0 ? 'border-t border-dashed border-gray-100' : 'border-t border-gray-100'}`}>
+                      {isFirst && (
+                        <td rowSpan={span} className="px-6 py-3.5 font-medium text-gray-900 align-top border-r border-gray-100">
+                          <div>{p.tenant.name}</div>
+                          <div className="text-xs text-gray-400 font-normal">{p.unit.name}</div>
+                        </td>
+                      )}
                       <td className="px-6 py-3.5 text-right text-gray-700">
                         {(Number(p.rentAmount) || (Number(p.amountDue) - p.services.reduce((s, c) => s + Number(c.amount), 0))).toLocaleString()}
                       </td>
@@ -296,7 +314,8 @@ export default function PaymentsPage() {
                       </td>
                     </tr>
                   );
-                })}
+                }));
+                })()}
               </tbody>
             </table>
           </div>
@@ -355,7 +374,7 @@ export default function PaymentsPage() {
                               onChange={e => updateCharge(c.serviceId, 'units', e.target.value)}
                               placeholder="0"
                               min="0"
-                              step="0.01"
+                              step="1"
                               className="w-20 border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
                             />
                             <span className="text-xs text-gray-400">{svc.unitLabel ?? 'units'}</span>
