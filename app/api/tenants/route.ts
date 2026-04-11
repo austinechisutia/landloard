@@ -31,25 +31,50 @@ export async function POST(request: Request) {
       return Response.json({ error: 'All fields are required' }, { status: 400 });
     }
 
-    const [tenant] = await prisma.$transaction([
-      prisma.tenant.create({
+    const houseType = await prisma.houseType.findUnique({ where: { id: parseInt(houseTypeId) } });
+    if (!houseType) return Response.json({ error: 'House type not found' }, { status: 400 });
+
+    const rentAmount = Number(houseType.rentAmount);
+    const moveIn     = new Date(moveInDate);
+
+    const tenant = await prisma.$transaction(async (tx) => {
+      const created = await tx.tenant.create({
         data: {
           name,
           phone,
           houseTypeId: parseInt(houseTypeId),
-          unitId: parseInt(unitId),
-          moveInDate: new Date(moveInDate),
+          unitId:      parseInt(unitId),
+          moveInDate:  moveIn,
         },
         include: { houseType: true, unit: true },
-      }),
-      prisma.unit.update({
+      });
+
+      await tx.unit.update({
         where: { id: parseInt(unitId) },
-        data: { status: 'OCCUPIED' },
-      }),
-    ]);
+        data:  { status: 'OCCUPIED' },
+      });
+
+      // Auto-create deposit record
+      await tx.payment.create({
+        data: {
+          tenantId:    created.id,
+          unitId:      parseInt(unitId),
+          paymentType: 'DEPOSIT',
+          rentAmount:  0,
+          amountDue:   rentAmount,
+          amountPaid:  0,
+          balance:     rentAmount,
+          status:      'PENDING',
+          dueDate:     moveIn,
+        },
+      });
+
+      return created;
+    });
 
     return Response.json(tenant, { status: 201 });
-  } catch {
-    return Response.json({ error: 'Failed to create tenant' }, { status: 500 });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return Response.json({ error: 'Failed to create tenant', detail: msg }, { status: 500 });
   }
 }

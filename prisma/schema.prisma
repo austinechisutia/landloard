@@ -49,12 +49,19 @@ enum PaymentStatus {
   PENDING
 }
 
+enum PaymentType {
+  DEPOSIT
+  RENT
+}
+
 model Payment {
   id          Int              @id @default(autoincrement())
   tenantId    Int
   tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   unitId      Int
   unit        Unit             @relation(fields: [unitId], references: [id])
+  paymentType PaymentType      @default(RENT)
+  period      DateTime?
   rentAmount  Decimal          @db.Decimal(10, 2) @default(0)
   amountDue   Decimal          @db.Decimal(10, 2)
   amountPaid  Decimal          @db.Decimal(10, 2) @default(0)

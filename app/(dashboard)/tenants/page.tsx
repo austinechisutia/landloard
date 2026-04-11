@@ -38,6 +38,35 @@ interface Tenant {
   }[];
 }
 
+interface MonthEntry {
+  period: string;
+  periodDate: string;
+  dueDate: string;
+  amountDue: number;
+  amountPaid: number;
+  status: string;
+  paymentId: number | null;
+  paymentDate: string | null;
+  effectiveDue: number;
+  effectiveBalance: number;
+  effectiveStatus: string;
+}
+
+interface Ledger {
+  tenant: { id: number; name: string; rentAmount: number; moveInDate: string; unit: string };
+  deposit: {
+    id: number | null;
+    amountDue: number;
+    amountPaid: number;
+    balance: number;
+    status: string;
+    paymentDate: string | null;
+  };
+  months: MonthEntry[];
+  carryOver: number;
+  summary: { totalDue: number; totalPaid: number; totalBalance: number };
+}
+
 const blank = { name: '', phone: '', houseTypeId: '', unitId: '', moveInDate: '' };
 
 export default function TenantsPage() {
@@ -52,6 +81,15 @@ export default function TenantsPage() {
   const [submitting,   setSubmitting]   = useState(false);
   const [deleteId,     setDeleteId]     = useState<number | null>(null);
   const [toast,        setToast]        = useState<string | null>(null);
+
+  // Ledger state
+  const [ledgerTenant,   setLedgerTenant]   = useState<Tenant | null>(null);
+  const [ledger,         setLedger]         = useState<Ledger | null>(null);
+  const [ledgerLoading,  setLedgerLoading]  = useState(false);
+  const [payTarget,      setPayTarget]      = useState<string>('');
+  const [payAmount,      setPayAmount]      = useState('');
+  const [payDate,        setPayDate]        = useState(() => new Date().toISOString().split('T')[0]);
+  const [paySubmitting,  setPaySubmitting]  = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -71,10 +109,9 @@ export default function TenantsPage() {
     try {
       const vacant = await api.get<Unit[]>(`/units?typeId=${typeId}&status=VACANT`);
       if (includeUnitId && !vacant.find(u => u.id === includeUnitId)) {
-        const all = await api.get<Unit[]>(`/units?typeId=${typeId}`);
+        const all     = await api.get<Unit[]>(`/units?typeId=${typeId}`);
         const current = all.find(u => u.id === includeUnitId);
-        if (current) setUnits([current, ...vacant]);
-        else setUnits(vacant);
+        setUnits(current ? [current, ...vacant] : vacant);
       } else {
         setUnits(vacant);
       }
@@ -130,33 +167,6 @@ export default function TenantsPage() {
     }
   };
 
-  const updatePaymentStatus = async (tenantId: number, payment: Tenant['payments'][0], status: 'PAID' | 'PENDING') => {
-    if (status === 'PENDING' && Number(payment.amountPaid) >= Number(payment.amountDue)) {
-      setToast('Cannot mark as pending — this payment has been fully paid.');
-      return;
-    }
-    const due        = Number(payment.amountDue);
-    const amountPaid = status === 'PAID' ? due : Number(payment.amountPaid);
-    const updated    = { ...payment, status, amountPaid };
-    setTenants(prev => prev.map(t =>
-      t.id === tenantId ? { ...t, payments: [updated] } : t
-    ));
-    try {
-      await api.patch(`/payments/${payment.id}`, {
-        amountDue:   due,
-        amountPaid,
-        dueDate:     payment.dueDate,
-        paymentDate: payment.paymentDate,
-        status,
-      });
-    } catch (err) {
-      setTenants(prev => prev.map(t =>
-        t.id === tenantId ? { ...t, payments: [{ ...payment }] } : t
-      ));
-      alert(err instanceof Error ? err.message : 'Failed to update payment status');
-    }
-  };
-
   const handleDelete = async (id: number) => {
     try {
       await api.delete(`/tenants/${id}`);
@@ -165,6 +175,64 @@ export default function TenantsPage() {
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Error deleting tenant');
     }
+  };
+
+  const openLedger = async (t: Tenant) => {
+    setLedgerTenant(t);
+    setLedger(null);
+    setPayTarget('');
+    setPayAmount('');
+    setLedgerLoading(true);
+    try {
+      const data = await api.get<Ledger>(`/tenants/${t.id}/ledger`);
+      setLedger(data);
+    } catch {
+      setToast('Failed to load ledger');
+    } finally {
+      setLedgerLoading(false);
+    }
+  };
+
+  const closeLedger = () => {
+    setLedgerTenant(null);
+    setLedger(null);
+  };
+
+  const recordPayment = async () => {
+    if (!ledgerTenant || !payTarget || !payAmount) return;
+    setPaySubmitting(true);
+    try {
+      await api.post(`/tenants/${ledgerTenant.id}/ledger`, {
+        target:      payTarget,
+        amount:      parseFloat(payAmount),
+        paymentDate: payDate,
+      });
+      setPayAmount('');
+      setPayTarget('');
+      // Reload ledger
+      const data = await api.get<Ledger>(`/tenants/${ledgerTenant.id}/ledger`);
+      setLedger(data);
+      setToast('Payment recorded');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to record payment');
+    } finally {
+      setPaySubmitting(false);
+    }
+  };
+
+  const statusBadge = (status: string) => {
+    const map: Record<string, string> = {
+      PAID:    'bg-green-100 text-green-700',
+      PARTIAL: 'bg-amber-100 text-amber-700',
+      PENDING: 'bg-red-100 text-red-700',
+    };
+    return `inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${map[status] ?? 'bg-gray-100 text-gray-500'}`;
+  };
+
+  const fmtMonth = (period: string) => {
+    const [yr, mo] = period.split('-');
+    const date = new Date(parseInt(yr), parseInt(mo) - 1, 1);
+    return date.toLocaleString('default', { month: 'short', year: 'numeric' });
   };
 
   return (
@@ -199,16 +267,15 @@ export default function TenantsPage() {
                   <th className="text-left px-6 py-3 text-gray-500 font-medium">Services</th>
                   <th className="text-right px-6 py-3 text-gray-500 font-medium">Total</th>
                   <th className="text-left px-6 py-3 text-gray-500 font-medium">Move-in</th>
-                  <th className="text-left px-6 py-3 text-gray-500 font-medium">Payment</th>
                   <th className="text-right px-6 py-3 text-gray-500 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {tenants.map(t => {
-                  const p         = t.payments[0] ?? null;
-                  const rent      = p ? Number(p.rentAmount) : Number(t.houseType.rentAmount);
-                  const svcTotal  = p ? p.services.reduce((s, c) => s + Number(c.amount), 0) : 0;
-                  const total     = p ? Number(p.amountDue) : rent;
+                  const p        = t.payments[0] ?? null;
+                  const rent     = p ? Number(p.rentAmount) : Number(t.houseType.rentAmount);
+                  const svcTotal = p ? p.services.reduce((s, c) => s + Number(c.amount), 0) : 0;
+                  const total    = p ? Number(p.amountDue) : rent;
                   return (
                     <tr key={t.id} className="hover:bg-gray-50 align-top">
                       <td className="px-6 py-3.5">
@@ -246,26 +313,12 @@ export default function TenantsPage() {
                       <td className="px-6 py-3.5 text-gray-600">
                         {new Date(t.moveInDate).toLocaleDateString()}
                       </td>
-                      <td className="px-6 py-3.5">
-                        {!p ? (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">
-                            No payments
-                          </span>
-                        ) : (
-                          <select
-                            value={p.status}
-                            onChange={e => updatePaymentStatus(t.id, p, e.target.value as 'PAID' | 'PENDING')}
-                            className={`text-xs font-medium rounded-full px-2.5 py-0.5 border-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                              p.status === 'PAID' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                            }`}
-                          >
-                            <option value="PAID">Paid</option>
-                            <option value="PENDING">Pending</option>
-                          </select>
-                        )}
-                      </td>
                       <td className="px-6 py-3.5 text-right">
                         <div className="flex items-center justify-end gap-1">
+                          {/* Ledger / payment tracking */}
+                          <button onClick={() => openLedger(t)} title="View Ledger" className="p-1.5 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 rounded-lg transition-colors">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+                          </button>
                           <button onClick={() => openEdit(t)} title="Edit" className="p-1.5 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-lg transition-colors">
                             <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                           </button>
@@ -283,6 +336,7 @@ export default function TenantsPage() {
         )}
       </div>
 
+      {/* Add / Edit tenant modal */}
       {showModal && (
         <Modal title={editing ? 'Edit Tenant' : 'Add Tenant'} onClose={() => setShowModal(false)}>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -376,6 +430,7 @@ export default function TenantsPage() {
         </Modal>
       )}
 
+      {/* Delete confirmation */}
       {deleteId !== null && (
         <Modal title="Remove Tenant" onClose={() => setDeleteId(null)}>
           <p className="text-sm text-gray-600 mb-6">Remove this tenant? Their unit will be marked as vacant.</p>
@@ -389,6 +444,179 @@ export default function TenantsPage() {
               Remove
             </button>
           </div>
+        </Modal>
+      )}
+
+      {/* Ledger modal */}
+      {ledgerTenant && (
+        <Modal title={`Payment Ledger — ${ledgerTenant.name}`} onClose={closeLedger}>
+          {ledgerLoading ? (
+            <div className="py-12 text-center text-sm text-gray-400">Loading ledger…</div>
+          ) : ledger ? (
+            <div className="space-y-5">
+
+              {/* Summary bar */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-gray-50 rounded-lg p-3 text-center">
+                  <div className="text-xs text-gray-500 mb-1">Total Due</div>
+                  <div className="font-semibold text-gray-900 text-sm">KSh {ledger.summary.totalDue.toLocaleString()}</div>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3 text-center">
+                  <div className="text-xs text-gray-500 mb-1">Total Paid</div>
+                  <div className="font-semibold text-green-700 text-sm">KSh {ledger.summary.totalPaid.toLocaleString()}</div>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3 text-center">
+                  <div className="text-xs text-gray-500 mb-1">Outstanding</div>
+                  <div className={`font-semibold text-sm ${ledger.summary.totalBalance > 0 ? 'text-red-600' : 'text-green-700'}`}>
+                    KSh {ledger.summary.totalBalance.toLocaleString()}
+                  </div>
+                </div>
+              </div>
+
+              {/* Deposit row */}
+              <div>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Deposit</h3>
+                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="text-left px-3 py-2 text-xs text-gray-500 font-medium">Due</th>
+                        <th className="text-right px-3 py-2 text-xs text-gray-500 font-medium">Amount Due</th>
+                        <th className="text-right px-3 py-2 text-xs text-gray-500 font-medium">Paid</th>
+                        <th className="text-right px-3 py-2 text-xs text-gray-500 font-medium">Balance</th>
+                        <th className="text-center px-3 py-2 text-xs text-gray-500 font-medium">Status</th>
+                        <th className="px-3 py-2" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="border-t border-gray-100">
+                        <td className="px-3 py-2.5 text-gray-600">
+                          {new Date(ledger.tenant.moveInDate).toLocaleDateString()}
+                        </td>
+                        <td className="px-3 py-2.5 text-right text-gray-700">{ledger.deposit.amountDue.toLocaleString()}</td>
+                        <td className="px-3 py-2.5 text-right text-gray-700">{ledger.deposit.amountPaid.toLocaleString()}</td>
+                        <td className="px-3 py-2.5 text-right font-medium text-gray-900">{ledger.deposit.balance.toLocaleString()}</td>
+                        <td className="px-3 py-2.5 text-center">
+                          <span className={statusBadge(ledger.deposit.status)}>{ledger.deposit.status}</span>
+                        </td>
+                        <td className="px-3 py-2.5 text-right">
+                          {ledger.deposit.status !== 'PAID' && (
+                            <button
+                              onClick={() => setPayTarget('DEPOSIT')}
+                              className={`text-xs px-2 py-1 rounded-md transition-colors ${payTarget === 'DEPOSIT' ? 'bg-indigo-600 text-white' : 'text-indigo-600 hover:bg-indigo-50'}`}
+                            >
+                              Pay
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Monthly rent */}
+              <div>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                  Monthly Rent
+                  {ledger.carryOver > 0 && (
+                    <span className="ml-2 text-green-600 normal-case font-normal">
+                      (carry-over credit: KSh {ledger.carryOver.toLocaleString()})
+                    </span>
+                  )}
+                </h3>
+                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                  <div className="overflow-x-auto max-h-64 overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 sticky top-0">
+                        <tr>
+                          <th className="text-left px-3 py-2 text-xs text-gray-500 font-medium">Month</th>
+                          <th className="text-right px-3 py-2 text-xs text-gray-500 font-medium">Due</th>
+                          <th className="text-right px-3 py-2 text-xs text-gray-500 font-medium">Paid</th>
+                          <th className="text-right px-3 py-2 text-xs text-gray-500 font-medium">Balance</th>
+                          <th className="text-center px-3 py-2 text-xs text-gray-500 font-medium">Status</th>
+                          <th className="px-3 py-2" />
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {ledger.months.map(m => (
+                          <tr key={m.period} className={payTarget === m.period ? 'bg-indigo-50' : 'hover:bg-gray-50'}>
+                            <td className="px-3 py-2.5 text-gray-700 font-medium">{fmtMonth(m.period)}</td>
+                            <td className="px-3 py-2.5 text-right text-gray-600">{m.effectiveDue.toLocaleString()}</td>
+                            <td className="px-3 py-2.5 text-right text-gray-600">{m.amountPaid.toLocaleString()}</td>
+                            <td className="px-3 py-2.5 text-right font-medium text-gray-900">{m.effectiveBalance.toLocaleString()}</td>
+                            <td className="px-3 py-2.5 text-center">
+                              <span className={statusBadge(m.effectiveStatus)}>{m.effectiveStatus}</span>
+                            </td>
+                            <td className="px-3 py-2.5 text-right">
+                              {m.effectiveStatus !== 'PAID' && (
+                                <button
+                                  onClick={() => setPayTarget(m.period)}
+                                  className={`text-xs px-2 py-1 rounded-md transition-colors ${payTarget === m.period ? 'bg-indigo-600 text-white' : 'text-indigo-600 hover:bg-indigo-50'}`}
+                                >
+                                  Pay
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              {/* Record payment form */}
+              {payTarget && (
+                <div className="border border-indigo-200 bg-indigo-50 rounded-lg p-4 space-y-3">
+                  <h3 className="text-sm font-semibold text-indigo-800">
+                    Record Payment — {payTarget === 'DEPOSIT' ? 'Deposit' : fmtMonth(payTarget)}
+                  </h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Amount (KSh)</label>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={payAmount}
+                        onChange={e => setPayAmount(e.target.value)}
+                        placeholder="e.g. 8000"
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Payment Date</label>
+                      <input
+                        type="date"
+                        value={payDate}
+                        onChange={e => setPayDate(e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => { setPayTarget(''); setPayAmount(''); }}
+                      className="flex-1 border border-gray-300 text-gray-700 rounded-lg py-2 text-sm hover:bg-white transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={recordPayment}
+                      disabled={paySubmitting || !payAmount}
+                      className="flex-1 bg-indigo-600 text-white rounded-lg py-2 text-sm hover:bg-indigo-700 disabled:opacity-50 transition-colors font-medium"
+                    >
+                      {paySubmitting ? 'Saving…' : 'Save Payment'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+            </div>
+          ) : (
+            <div className="py-12 text-center text-sm text-red-400">Failed to load ledger.</div>
+          )}
         </Modal>
       )}
 
