@@ -3,59 +3,69 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import Modal from '@/components/Modal';
 
-interface House {
+interface HouseType {
   id: number;
-  unit_number: string;
-  house_type: string;
-  status: string;
+  name: string;
+  rentAmount: number;
+}
+
+interface Unit {
+  id: number;
+  name: string;
+  status: 'VACANT' | 'OCCUPIED';
+  houseTypeId: number;
 }
 
 interface Tenant {
   id: number;
   name: string;
   phone: string;
-  house_id: number;
-  unit_number: string;
-  house_type: string;
-  rent_amount: number;
-  move_in_date: string;
+  houseTypeId: number;
+  unitId: number;
+  moveInDate: string;
+  houseType: HouseType;
+  unit: Unit;
 }
 
-const blank = { name: '', phone: '', house_id: '', move_in_date: '' };
+const blank = { name: '', phone: '', houseTypeId: '', unitId: '', moveInDate: '' };
 
 export default function TenantsPage() {
   const [tenants,    setTenants]    = useState<Tenant[]>([]);
-  const [houses,     setHouses]     = useState<House[]>([]);
+  const [types,      setTypes]      = useState<HouseType[]>([]);
+  const [units,      setUnits]      = useState<Unit[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [showModal,  setShowModal]  = useState(false);
-  const [editing,    setEditing]    = useState<Tenant | null>(null);
-  const [form,       setForm]       = useState<typeof blank>(blank);
+  const [form,       setForm]       = useState(blank);
+  const [loadingUnits, setLoadingUnits] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [deleteId,   setDeleteId]   = useState<number | null>(null);
 
   const load = () => {
     setLoading(true);
-    Promise.all([api.get<Tenant[]>('/tenants'), api.get<House[]>('/houses')])
-      .then(([t, h]) => { setTenants(t); setHouses(h); })
+    Promise.all([api.get<Tenant[]>('/tenants'), api.get<HouseType[]>('/house-types')])
+      .then(([t, ht]) => { setTenants(t); setTypes(ht); })
       .finally(() => setLoading(false));
   };
 
   useEffect(() => { load(); }, []);
 
-  const openAdd = () => {
-    setEditing(null);
-    setForm(blank);
-    setShowModal(true);
+  // When house type changes, fetch available (vacant) units for that type
+  const onTypeChange = async (typeId: string) => {
+    setForm(f => ({ ...f, houseTypeId: typeId, unitId: '' }));
+    setUnits([]);
+    if (!typeId) return;
+    setLoadingUnits(true);
+    try {
+      const available = await api.get<Unit[]>(`/units?typeId=${typeId}&status=VACANT`);
+      setUnits(available);
+    } finally {
+      setLoadingUnits(false);
+    }
   };
 
-  const openEdit = (t: Tenant) => {
-    setEditing(t);
-    setForm({
-      name:         t.name,
-      phone:        t.phone,
-      house_id:     String(t.house_id),
-      move_in_date: t.move_in_date?.split('T')[0] || '',
-    });
+  const openAdd = () => {
+    setForm(blank);
+    setUnits([]);
     setShowModal(true);
   };
 
@@ -63,9 +73,13 @@ export default function TenantsPage() {
     e.preventDefault();
     setSubmitting(true);
     try {
-      const payload = { ...form, house_id: parseInt(form.house_id) };
-      if (editing) await api.put(`/tenants/${editing.id}`, payload);
-      else         await api.post('/tenants', payload);
+      await api.post('/tenants', {
+        name:        form.name,
+        phone:       form.phone,
+        houseTypeId: parseInt(form.houseTypeId),
+        unitId:      parseInt(form.unitId),
+        moveInDate:  form.moveInDate,
+      });
       setShowModal(false);
       load();
     } catch (err) {
@@ -84,14 +98,6 @@ export default function TenantsPage() {
       alert(err instanceof Error ? err.message : 'Error deleting tenant');
     }
   };
-
-  const field = (key: keyof typeof blank) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-    setForm(f => ({ ...f, [key]: e.target.value }));
-
-  // When editing, include the tenant's current house even if occupied
-  const availableHouses = editing
-    ? houses.filter(h => h.status === 'vacant' || h.id === editing.house_id)
-    : houses.filter(h => h.status === 'vacant');
 
   return (
     <div className="space-y-6">
@@ -112,7 +118,7 @@ export default function TenantsPage() {
         {loading ? (
           <div className="p-10 text-center text-sm text-gray-400">Loading…</div>
         ) : tenants.length === 0 ? (
-          <div className="p-10 text-center text-sm text-gray-400">No tenants yet. Add your first tenant.</div>
+          <div className="p-10 text-center text-sm text-gray-400">No tenants yet.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -120,8 +126,9 @@ export default function TenantsPage() {
                 <tr>
                   <th className="text-left px-6 py-3 text-gray-500 font-medium">Name</th>
                   <th className="text-left px-6 py-3 text-gray-500 font-medium">Phone</th>
-                  <th className="text-left px-6 py-3 text-gray-500 font-medium">House</th>
-                  <th className="text-right px-6 py-3 text-gray-500 font-medium">Rent</th>
+                  <th className="text-left px-6 py-3 text-gray-500 font-medium">House Type</th>
+                  <th className="text-left px-6 py-3 text-gray-500 font-medium">Unit</th>
+                  <th className="text-right px-6 py-3 text-gray-500 font-medium">Rent (KSh)</th>
                   <th className="text-left px-6 py-3 text-gray-500 font-medium">Move-in</th>
                   <th className="text-right px-6 py-3 text-gray-500 font-medium">Actions</th>
                 </tr>
@@ -131,16 +138,18 @@ export default function TenantsPage() {
                   <tr key={t.id} className="hover:bg-gray-50">
                     <td className="px-6 py-3.5 font-medium text-gray-900">{t.name}</td>
                     <td className="px-6 py-3.5 text-gray-600">{t.phone}</td>
-                    <td className="px-6 py-3.5 text-gray-600">{t.unit_number} — {t.house_type}</td>
+                    <td className="px-6 py-3.5 text-gray-600">{t.houseType.name}</td>
+                    <td className="px-6 py-3.5 font-semibold text-gray-900">{t.unit.name}</td>
                     <td className="px-6 py-3.5 text-right text-gray-700">
-                      KSh {parseFloat(String(t.rent_amount)).toLocaleString()}
+                      {Number(t.houseType.rentAmount).toLocaleString()}
                     </td>
                     <td className="px-6 py-3.5 text-gray-600">
-                      {new Date(t.move_in_date).toLocaleDateString()}
+                      {new Date(t.moveInDate).toLocaleDateString()}
                     </td>
-                    <td className="px-6 py-3.5 text-right space-x-3">
-                      <button onClick={() => openEdit(t)} className="text-indigo-600 hover:text-indigo-800 font-medium">Edit</button>
-                      <button onClick={() => setDeleteId(t.id)} className="text-red-500 hover:text-red-700 font-medium">Delete</button>
+                    <td className="px-6 py-3.5 text-right">
+                      <button onClick={() => setDeleteId(t.id)} className="text-red-500 hover:text-red-700 font-medium">
+                        Remove
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -151,12 +160,15 @@ export default function TenantsPage() {
       </div>
 
       {showModal && (
-        <Modal title={editing ? 'Edit Tenant' : 'Add Tenant'} onClose={() => setShowModal(false)}>
+        <Modal title="Add Tenant" onClose={() => setShowModal(false)}>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
               <input
-                type="text" value={form.name} onChange={field('name')} placeholder="e.g. John Mwangi"
+                type="text"
+                value={form.name}
+                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                placeholder="e.g. John Mwangi"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 required
               />
@@ -164,31 +176,62 @@ export default function TenantsPage() {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
               <input
-                type="tel" value={form.phone} onChange={field('phone')} placeholder="e.g. 0712345678"
+                type="tel"
+                value={form.phone}
+                onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+                placeholder="e.g. 0712345678"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 required
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Assign House</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">House Type</label>
               <select
-                value={form.house_id} onChange={field('house_id')}
+                value={form.houseTypeId}
+                onChange={e => onTypeChange(e.target.value)}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 required
               >
-                <option value="">Select a house…</option>
-                {availableHouses.map(h => (
-                  <option key={h.id} value={h.id}>{h.unit_number} — {h.house_type}</option>
+                <option value="">Select house type…</option>
+                {types.map(t => (
+                  <option key={t.id} value={t.id}>{t.name} — KSh {Number(t.rentAmount).toLocaleString()}</option>
                 ))}
               </select>
-              {!editing && availableHouses.length === 0 && (
-                <p className="text-xs text-amber-600 mt-1">No vacant houses available. Add a house first.</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Available Unit</label>
+              <select
+                value={form.unitId}
+                onChange={e => setForm(f => ({ ...f, unitId: e.target.value }))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50"
+                disabled={!form.houseTypeId || loadingUnits}
+                required
+              >
+                <option value="">
+                  {!form.houseTypeId
+                    ? 'Select a house type first…'
+                    : loadingUnits
+                    ? 'Loading units…'
+                    : units.length === 0
+                    ? 'No vacant units available'
+                    : 'Select a unit…'}
+                </option>
+                {units.map(u => (
+                  <option key={u.id} value={u.id}>{u.name}</option>
+                ))}
+              </select>
+              {form.houseTypeId && !loadingUnits && units.length === 0 && (
+                <p className="text-xs text-amber-600 mt-1">
+                  No vacant units for this type. Add more units first.
+                </p>
               )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Move-in Date</label>
               <input
-                type="date" value={form.move_in_date} onChange={field('move_in_date')}
+                type="date"
+                value={form.moveInDate}
+                onChange={e => setForm(f => ({ ...f, moveInDate: e.target.value }))}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 required
               />
@@ -198,9 +241,9 @@ export default function TenantsPage() {
                 className="flex-1 border border-gray-300 text-gray-700 rounded-lg py-2 text-sm hover:bg-gray-50 transition-colors">
                 Cancel
               </button>
-              <button type="submit" disabled={submitting}
+              <button type="submit" disabled={submitting || !form.unitId}
                 className="flex-1 bg-indigo-600 text-white rounded-lg py-2 text-sm hover:bg-indigo-700 disabled:opacity-50 transition-colors font-medium">
-                {submitting ? 'Saving…' : 'Save'}
+                {submitting ? 'Saving…' : 'Add Tenant'}
               </button>
             </div>
           </form>
@@ -208,9 +251,9 @@ export default function TenantsPage() {
       )}
 
       {deleteId !== null && (
-        <Modal title="Delete Tenant" onClose={() => setDeleteId(null)}>
+        <Modal title="Remove Tenant" onClose={() => setDeleteId(null)}>
           <p className="text-sm text-gray-600 mb-6">
-            Are you sure? The tenant will be removed and their house marked as vacant.
+            Remove this tenant? Their unit will be marked as vacant.
           </p>
           <div className="flex gap-3">
             <button onClick={() => setDeleteId(null)}
@@ -219,7 +262,7 @@ export default function TenantsPage() {
             </button>
             <button onClick={() => handleDelete(deleteId)}
               className="flex-1 bg-red-600 text-white rounded-lg py-2 text-sm hover:bg-red-700 transition-colors font-medium">
-              Delete
+              Remove
             </button>
           </div>
         </Modal>

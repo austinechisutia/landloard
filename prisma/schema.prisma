@@ -1,0 +1,65 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model HouseType {
+  id         Int       @id @default(autoincrement())
+  name       String
+  rentAmount Decimal   @db.Decimal(10, 2)
+  units      Unit[]
+  tenants    Tenant[]
+  createdAt  DateTime  @default(now())
+}
+
+enum UnitStatus {
+  VACANT
+  OCCUPIED
+}
+
+model Unit {
+  id          Int        @id @default(autoincrement())
+  name        String
+  status      UnitStatus @default(VACANT)
+  houseTypeId Int
+  houseType   HouseType  @relation(fields: [houseTypeId], references: [id])
+  tenants     Tenant[]
+  payments    Payment[]
+  createdAt   DateTime   @default(now())
+}
+
+model Tenant {
+  id          Int       @id @default(autoincrement())
+  name        String
+  phone       String
+  houseTypeId Int
+  houseType   HouseType @relation(fields: [houseTypeId], references: [id])
+  unitId      Int
+  unit        Unit      @relation(fields: [unitId], references: [id])
+  moveInDate  DateTime
+  payments    Payment[]
+  createdAt   DateTime  @default(now())
+}
+
+enum PaymentStatus {
+  PAID
+  PENDING
+}
+
+model Payment {
+  id          Int           @id @default(autoincrement())
+  tenantId    Int
+  tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  unitId      Int
+  unit        Unit          @relation(fields: [unitId], references: [id])
+  amountDue   Decimal       @db.Decimal(10, 2)
+  amountPaid  Decimal       @db.Decimal(10, 2) @default(0)
+  balance     Decimal       @db.Decimal(10, 2)
+  status      PaymentStatus @default(PENDING)
+  dueDate     DateTime
+  paymentDate DateTime?
+  createdAt   DateTime      @default(now())
+}
