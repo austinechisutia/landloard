@@ -3,7 +3,15 @@ import { prisma } from '@/lib/prisma';
 export async function GET() {
   try {
     const tenants = await prisma.tenant.findMany({
-      include: { houseType: true, unit: true },
+      include: {
+        houseType: true,
+        unit: { include: { houseType: true } },
+        payments: {
+          orderBy: { dueDate: 'desc' },
+          take: 1,
+          select: { id: true, status: true, dueDate: true, amountDue: true, amountPaid: true, paymentDate: true },
+        },
+      },
       orderBy: { createdAt: 'desc' },
     });
     return Response.json(tenants);

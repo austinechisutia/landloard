@@ -18,12 +18,12 @@ async function seed() {
     console.log('Creating houses...');
     const { rows: houses } = await client.query(`
       INSERT INTO houses (unit_number, house_type, rent_amount, status) VALUES
-      ('A1', 'Bedsitter',  5000,  'occupied'),
-      ('A2', '1 Bedroom',  8000,  'occupied'),
-      ('A3', '2 Bedroom',  12000, 'vacant'),
-      ('B1', 'Single Room',3500,  'occupied'),
-      ('B2', 'Bedsitter',  5000,  'vacant'),
-      ('B3', '1 Bedroom',  8000,  'occupied')
+      ('A1', 'Single',    4000,  'occupied'),
+      ('A2', 'Single',    4000,  'vacant'),
+      ('B1', 'Bedsitter', 6500,  'occupied'),
+      ('B2', 'Bedsitter', 6500,  'vacant'),
+      ('C1', '1 Bedroom', 12000, 'occupied'),
+      ('C2', '1 Bedroom', 12000, 'vacant')
       RETURNING id, rent_amount
     `);
 

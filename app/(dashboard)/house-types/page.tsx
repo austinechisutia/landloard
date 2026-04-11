@@ -16,8 +16,10 @@ export default function HouseTypesPage() {
   const [types,      setTypes]      = useState<HouseType[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [showModal,  setShowModal]  = useState(false);
+  const [editing,    setEditing]    = useState<HouseType | null>(null);
   const [form,       setForm]       = useState(blank);
   const [submitting, setSubmitting] = useState(false);
+  const [deleteId,   setDeleteId]   = useState<number | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -26,13 +28,26 @@ export default function HouseTypesPage() {
 
   useEffect(() => { load(); }, []);
 
+  const openAdd = () => {
+    setEditing(null);
+    setForm(blank);
+    setShowModal(true);
+  };
+
+  const openEdit = (t: HouseType) => {
+    setEditing(t);
+    setForm({ name: t.name, rentAmount: String(t.rentAmount) });
+    setShowModal(true);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
     try {
-      await api.post('/house-types', { name: form.name, rentAmount: parseFloat(form.rentAmount) });
+      const payload = { name: form.name, rentAmount: parseFloat(form.rentAmount) };
+      if (editing) await api.patch(`/house-types/${editing.id}`, payload);
+      else         await api.post('/house-types', payload);
       setShowModal(false);
-      setForm(blank);
       load();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Error saving house type');
@@ -41,16 +56,26 @@ export default function HouseTypesPage() {
     }
   };
 
+  const handleDelete = async (id: number) => {
+    try {
+      await api.delete(`/house-types/${id}`);
+      setDeleteId(null);
+      load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Error deleting house type');
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">House Types</h1>
           <p className="text-sm text-gray-500 mt-0.5">{types.length} type{types.length !== 1 ? 's' : ''}</p>
         </div>
         <button
-          onClick={() => setShowModal(true)}
-          className="bg-indigo-600 text-white px-4 py-2 text-sm rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+          onClick={openAdd}
+          className="bg-indigo-600 text-white px-4 py-2 text-sm rounded-lg hover:bg-indigo-700 transition-colors font-medium whitespace-nowrap"
         >
           + Add House Type
         </button>
@@ -69,6 +94,7 @@ export default function HouseTypesPage() {
                   <th className="text-left px-6 py-3 text-gray-500 font-medium">Name</th>
                   <th className="text-right px-6 py-3 text-gray-500 font-medium">Rent (KSh)</th>
                   <th className="text-right px-6 py-3 text-gray-500 font-medium">Units</th>
+                  <th className="text-right px-6 py-3 text-gray-500 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -79,6 +105,24 @@ export default function HouseTypesPage() {
                       {Number(t.rentAmount).toLocaleString()}
                     </td>
                     <td className="px-6 py-3.5 text-right text-gray-500">{t._count.units}</td>
+                    <td className="px-6 py-3.5 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => openEdit(t)}
+                          title="Edit"
+                          className="p-1.5 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-lg transition-colors"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                        </button>
+                        <button
+                          onClick={() => setDeleteId(t.id)}
+                          title="Delete"
+                          className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -87,8 +131,26 @@ export default function HouseTypesPage() {
         )}
       </div>
 
+      {deleteId !== null && (
+        <Modal title="Delete House Type" onClose={() => setDeleteId(null)}>
+          <p className="text-sm text-gray-600 mb-6">
+            Delete this house type? This will fail if any units or tenants are still assigned to it.
+          </p>
+          <div className="flex gap-3">
+            <button onClick={() => setDeleteId(null)}
+              className="flex-1 border border-gray-300 text-gray-700 rounded-lg py-2 text-sm hover:bg-gray-50 transition-colors">
+              Cancel
+            </button>
+            <button onClick={() => handleDelete(deleteId)}
+              className="flex-1 bg-red-600 text-white rounded-lg py-2 text-sm hover:bg-red-700 transition-colors font-medium">
+              Delete
+            </button>
+          </div>
+        </Modal>
+      )}
+
       {showModal && (
-        <Modal title="Add House Type" onClose={() => setShowModal(false)}>
+        <Modal title={editing ? 'Edit House Type' : 'Add House Type'} onClose={() => setShowModal(false)}>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Type Name</label>
@@ -121,7 +183,7 @@ export default function HouseTypesPage() {
               </button>
               <button type="submit" disabled={submitting}
                 className="flex-1 bg-indigo-600 text-white rounded-lg py-2 text-sm hover:bg-indigo-700 disabled:opacity-50 transition-colors font-medium">
-                {submitting ? 'Saving…' : 'Save'}
+                {submitting ? 'Saving…' : editing ? 'Save Changes' : 'Save'}
               </button>
             </div>
           </form>

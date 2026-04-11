@@ -7,13 +7,17 @@ interface Stats {
   totalUnits: number;
   occupiedUnits: number;
   vacantUnits: number;
+  totalTenants: number;
   totalRentPaid: number;
+  thisMonthRent: number;
   totalPendingRent: number;
 }
 
-function fmt(n: number) {
-  return `KSh ${n.toLocaleString()}`;
+function fmt(n: number | undefined | null) {
+  return `KSh ${(n ?? 0).toLocaleString()}`;
 }
+
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 export default function DashboardPage() {
   const [stats,   setStats]   = useState<Stats | null>(null);
@@ -27,21 +31,16 @@ export default function DashboardPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64 text-gray-400 text-sm">
-        Loading dashboard…
-      </div>
-    );
-  }
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-64 text-red-500 text-sm">
-        {error}
-      </div>
-    );
-  }
+  if (loading) return (
+    <div className="flex items-center justify-center h-64 text-gray-400 text-sm">Loading dashboard…</div>
+  );
+  if (error) return (
+    <div className="flex items-center justify-center h-64 text-red-500 text-sm">{error}</div>
+  );
   if (!stats) return null;
+
+  const now = new Date();
+  const monthLabel = `${MONTHS[now.getMonth()]} ${now.getFullYear()}`;
 
   return (
     <div className="space-y-8">
@@ -51,11 +50,24 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-        <StatsCard title="Total Units"    value={stats.totalUnits}    color="blue"   />
-        <StatsCard title="Occupied"       value={stats.occupiedUnits} color="green"  />
-        <StatsCard title="Vacant"         value={stats.vacantUnits}   color="yellow" />
-        <StatsCard title="Rent Collected" value={fmt(stats.totalRentPaid)}    color="green" />
-        <StatsCard title="Pending Rent"   value={fmt(stats.totalPendingRent)} color="red"   />
+        <StatsCard title="Total Units"   value={stats.totalUnits}    color="blue"   />
+        <StatsCard title="Occupied"      value={stats.occupiedUnits} color="green"  />
+        <StatsCard title="Vacant"        value={stats.vacantUnits}   color="yellow" />
+        <StatsCard title="Total Tenants" value={stats.totalTenants}  color="blue"   />
+
+        <StatsCard
+          title="Rent Collected"
+          value={fmt(stats.thisMonthRent)}
+          sub={`${monthLabel} · All-time: ${fmt(stats.totalRentPaid)}`}
+          color="green"
+        />
+
+        <StatsCard
+          title="Pending Rent"
+          value={fmt(stats.totalPendingRent)}
+          sub="Outstanding balance across all pending payments"
+          color="red"
+        />
       </div>
     </div>
   );

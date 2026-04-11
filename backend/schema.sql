@@ -1,5 +1,17 @@
 -- Rental Management System Schema
+CREATE TABLE IF NOT EXISTS house_types (
+  id          SERIAL PRIMARY KEY,
+  name        VARCHAR(100) UNIQUE NOT NULL,
+  rent_amount DECIMAL(10,2) NOT NULL,
+  created_at  TIMESTAMP DEFAULT NOW()
+);
 
+-- Seed default house types (safe to run multiple times)
+INSERT INTO house_types (name, rent_amount) VALUES
+  ('Single',    4000),
+  ('Bedsitter', 6500),
+  ('1 Bedroom', 12000)
+ON CONFLICT (name) DO NOTHING;
 CREATE TABLE IF NOT EXISTS users (
   id         SERIAL PRIMARY KEY,
   email      VARCHAR(255) UNIQUE NOT NULL,

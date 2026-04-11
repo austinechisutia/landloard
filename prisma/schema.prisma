@@ -50,16 +50,44 @@ enum PaymentStatus {
 }
 
 model Payment {
-  id          Int           @id @default(autoincrement())
+  id          Int              @id @default(autoincrement())
   tenantId    Int
-  tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   unitId      Int
-  unit        Unit          @relation(fields: [unitId], references: [id])
-  amountDue   Decimal       @db.Decimal(10, 2)
-  amountPaid  Decimal       @db.Decimal(10, 2) @default(0)
-  balance     Decimal       @db.Decimal(10, 2)
-  status      PaymentStatus @default(PENDING)
+  unit        Unit             @relation(fields: [unitId], references: [id])
+  rentAmount  Decimal          @db.Decimal(10, 2) @default(0)
+  amountDue   Decimal          @db.Decimal(10, 2)
+  amountPaid  Decimal          @db.Decimal(10, 2) @default(0)
+  balance     Decimal          @db.Decimal(10, 2)
+  status      PaymentStatus    @default(PENDING)
   dueDate     DateTime
   paymentDate DateTime?
-  createdAt   DateTime      @default(now())
+  services    PaymentService[]
+  createdAt   DateTime         @default(now())
+}
+
+enum ServiceType {
+  FIXED
+  PER_UNIT
+}
+
+model Service {
+  id        Int              @id @default(autoincrement())
+  name      String
+  type      ServiceType      @default(FIXED)
+  unitPrice Decimal          @db.Decimal(10, 2)
+  unitLabel String?
+  active    Boolean          @default(true)
+  charges   PaymentService[]
+  createdAt DateTime         @default(now())
+}
+
+model PaymentService {
+  id        Int     @id @default(autoincrement())
+  paymentId Int
+  payment   Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  serviceId Int
+  service   Service @relation(fields: [serviceId], references: [id])
+  units     Decimal? @db.Decimal(10, 2)
+  amount    Decimal  @db.Decimal(10, 2)
 }

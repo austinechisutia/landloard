@@ -7,12 +7,12 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    const { amountDue, amountPaid, dueDate, paymentDate } = await request.json();
+    const { amountDue, amountPaid, dueDate, paymentDate, status: statusOverride } = await request.json();
 
     const due  = parseFloat(amountDue);
     const paid = parseFloat(amountPaid) || 0;
     const balance = due - paid;
-    const status: PaymentStatus = paid >= due ? 'PAID' : 'PENDING';
+    const status: PaymentStatus = statusOverride ?? (paid >= due ? 'PAID' : 'PENDING');
 
     const payment = await prisma.payment.update({
       where: { id: parseInt(id) },
