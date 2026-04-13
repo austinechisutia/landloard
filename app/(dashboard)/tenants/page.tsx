@@ -96,11 +96,14 @@ export default function TenantsPage() {
 
   const load = () => {
     setLoading(true);
-    Promise.all([
+    Promise.allSettled([
       api.get<Tenant[]>('/tenants'),
       api.get<HouseType[]>('/house-types'),
     ])
-      .then(([t, ht]) => { setTenants(t); setTypes(ht); })
+      .then(([tr, htr]) => {
+        if (tr.status  === 'fulfilled') setTenants(tr.value);
+        if (htr.status === 'fulfilled') setTypes(htr.value);
+      })
       .finally(() => setLoading(false));
   };
 
