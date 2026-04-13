@@ -1,27 +1,35 @@
 import { prisma } from '@/lib/prisma';
+import { logAudit } from '@/lib/audit';
+import { requireUserId } from '@/lib/current-user';
 
 export async function GET() {
   try {
+    const userId = await requireUserId();
     const services = await prisma.service.findMany({
+      where: { userId },
       orderBy: { createdAt: 'asc' },
     });
     return Response.json(services);
-  } catch {
+  } catch (error) {
+    if (error instanceof Response) return error;
     return Response.json({ error: 'Failed to fetch services' }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
   try {
+    const userId = await requireUserId();
     const { name, type, unitPrice, unitLabel } = await request.json();
     if (!name || !type || unitPrice == null) {
       return Response.json({ error: 'name, type and unitPrice are required' }, { status: 400 });
     }
     const service = await prisma.service.create({
-      data: { name, type, unitPrice, unitLabel: unitLabel || null },
+      data: { userId, name, type, unitPrice, unitLabel: unitLabel || null },
     });
+    await logAudit({ userId, action: 'CREATE', entity: 'Service', entityId: String(service.id), detail: service.name });
     return Response.json(service, { status: 201 });
-  } catch {
+  } catch (error) {
+    if (error instanceof Response) return error;
     return Response.json({ error: 'Failed to create service' }, { status: 500 });
   }
 }

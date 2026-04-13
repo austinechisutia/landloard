@@ -1,10 +1,18 @@
 import { prisma } from '@/lib/prisma';
+import { logAudit } from '@/lib/audit';
+import { requireUserId } from '@/lib/current-user';
+
+const ownedOrLegacy = (id: number, userId: string) => ({
+  id,
+  OR: [{ userId }, { userId: null }],
+});
 
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const userId = await requireUserId();
     const { id } = await params;
     const {
       name, phone, houseTypeId, unitId, moveInDate,
@@ -12,14 +20,12 @@ export async function PATCH(
       householdCount, householdMembers,
     } = await request.json();
 
-    const existing = await prisma.tenant.findUnique({ where: { id: parseInt(id) } });
-    if (!existing) {
-      return Response.json({ error: 'Tenant not found' }, { status: 404 });
-    }
+    const existing = await prisma.tenant.findFirst({ where: ownedOrLegacy(parseInt(id), userId) });
+    if (!existing) return Response.json({ error: 'Tenant not found' }, { status: 404 });
 
-    const unitChanged    = parseInt(unitId) !== existing.unitId;
-    const newMoveIn      = new Date(moveInDate);
-    const moveInChanged  = newMoveIn.getTime() !== new Date(existing.moveInDate).getTime();
+    const unitChanged   = parseInt(unitId) !== existing.unitId;
+    const newMoveIn     = new Date(moveInDate);
+    const moveInChanged = newMoveIn.getTime() !== new Date(existing.moveInDate).getTime();
 
     const tenant = await prisma.$transaction(async (tx) => {
       const updated = await tx.tenant.update({
@@ -44,27 +50,23 @@ export async function PATCH(
         await tx.unit.update({ where: { id: parseInt(unitId) }, data: { status: 'OCCUPIED' } });
       }
       if (moveInChanged) {
-        // Update deposit due date to new move-in date
         const newDepositDue = new Date(Date.UTC(newMoveIn.getUTCFullYear(), newMoveIn.getUTCMonth(), 10));
         await tx.payment.updateMany({
           where: { tenantId: parseInt(id), paymentType: 'DEPOSIT' },
           data:  { dueDate: newDepositDue },
         });
-        // Delete rent payment records for months before the new move-in
         const newMoveInPeriodStart = new Date(Date.UTC(newMoveIn.getUTCFullYear(), newMoveIn.getUTCMonth(), 1));
         await tx.payment.deleteMany({
-          where: {
-            tenantId:    parseInt(id),
-            paymentType: 'RENT',
-            period:      { lt: newMoveInPeriodStart },
-          },
+          where: { tenantId: parseInt(id), paymentType: 'RENT', period: { lt: newMoveInPeriodStart } },
         });
       }
       return updated;
     });
 
+    await logAudit({ userId, action: 'UPDATE', entity: 'Tenant', entityId: String(tenant.id), detail: tenant.name });
     return Response.json(tenant);
   } catch (err) {
+    if (err instanceof Response) return err;
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[PATCH /tenants/:id]', err);
     return Response.json({ error: msg }, { status: 500 });
@@ -76,19 +78,20 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const userId = await requireUserId();
     const { id } = await params;
-    const tenant = await prisma.tenant.findUnique({ where: { id: parseInt(id) } });
-    if (!tenant) {
-      return Response.json({ error: 'Tenant not found' }, { status: 404 });
-    }
+    const tenant = await prisma.tenant.findFirst({ where: ownedOrLegacy(parseInt(id), userId) });
+    if (!tenant) return Response.json({ error: 'Tenant not found' }, { status: 404 });
 
     await prisma.$transaction(async (tx) => {
       await tx.tenant.delete({ where: { id: parseInt(id) } });
       await tx.unit.update({ where: { id: tenant.unitId }, data: { status: 'VACANT' } });
     });
 
+    await logAudit({ userId, action: 'DELETE', entity: 'Tenant', entityId: id, detail: tenant.name });
     return Response.json({ ok: true });
-  } catch {
+  } catch (error) {
+    if (error instanceof Response) return error;
     return Response.json({ error: 'Failed to delete tenant' }, { status: 500 });
   }
 }

@@ -1,14 +1,24 @@
 import { prisma } from '@/lib/prisma';
 import { UnitStatus } from '@prisma/client';
+import { logAudit } from '@/lib/audit';
+import { requireUserId } from '@/lib/current-user';
+
+const ownedOrLegacy = (id: number, userId: string) => ({
+  id,
+  OR: [{ userId }, { userId: null }],
+});
 
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const userId = await requireUserId();
     const { id } = await params;
-    const body = await request.json();
-    const { status, name, depositMonths } = body;
+    const { status, name, depositMonths } = await request.json();
+
+    const existing = await prisma.unit.findFirst({ where: ownedOrLegacy(parseInt(id), userId) });
+    if (!existing) return Response.json({ error: 'Unit not found' }, { status: 404 });
 
     const unit = await prisma.unit.update({
       where: { id: parseInt(id) },
@@ -19,8 +29,10 @@ export async function PATCH(
       },
       include: { houseType: true },
     });
+    await logAudit({ userId, action: 'UPDATE', entity: 'Unit', entityId: String(unit.id), detail: unit.name });
     return Response.json(unit);
-  } catch {
+  } catch (error) {
+    if (error instanceof Response) return error;
     return Response.json({ error: 'Failed to update unit' }, { status: 500 });
   }
 }
@@ -30,10 +42,16 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const userId = await requireUserId();
     const { id } = await params;
+    const existing = await prisma.unit.findFirst({ where: ownedOrLegacy(parseInt(id), userId) });
+    if (!existing) return Response.json({ error: 'Unit not found' }, { status: 404 });
+
     await prisma.unit.delete({ where: { id: parseInt(id) } });
+    await logAudit({ userId, action: 'DELETE', entity: 'Unit', entityId: id, detail: existing.name });
     return Response.json({ ok: true });
-  } catch {
+  } catch (error) {
+    if (error instanceof Response) return error;
     return Response.json({ error: 'Failed to delete unit' }, { status: 500 });
   }
 }

@@ -1,13 +1,15 @@
 import { prisma } from '@/lib/prisma';
+import { requireUserId } from '@/lib/current-user';
 
 export async function GET(request: Request) {
   try {
+    const userId = await requireUserId();
     const { searchParams } = new URL(request.url);
     const tenantIdParam = searchParams.get('tenantId');
     const tenantIdFilter = tenantIdParam ? { id: parseInt(tenantIdParam) } : {};
 
     const tenants = await prisma.tenant.findMany({
-      where: tenantIdFilter,
+      where: { userId, ...tenantIdFilter },
       include: {
         houseType: true,
         unit: true,
@@ -129,6 +131,7 @@ export async function GET(request: Request) {
 
     return Response.json(schedule);
   } catch (err) {
+    if (err instanceof Response) return err;
     console.error(err);
     return Response.json({ error: 'Failed to load payment schedule' }, { status: 500 });
   }

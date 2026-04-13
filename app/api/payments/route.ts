@@ -1,13 +1,16 @@
 import { prisma } from '@/lib/prisma';
 import { PaymentStatus } from '@prisma/client';
+import { logAudit } from '@/lib/audit';
+import { requireUserId } from '@/lib/current-user';
 
 export async function GET(request: Request) {
   try {
+    const userId = await requireUserId();
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status') as PaymentStatus | null;
 
     const payments = await prisma.payment.findMany({
-      where: status ? { status } : {},
+      where: { userId, ...(status ? { status } : {}) },
       include: {
         tenant: true,
         unit: { include: { houseType: true } },
@@ -16,13 +19,15 @@ export async function GET(request: Request) {
       orderBy: { createdAt: 'desc' },
     });
     return Response.json(payments);
-  } catch {
+  } catch (error) {
+    if (error instanceof Response) return error;
     return Response.json({ error: 'Failed to fetch payments' }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
   try {
+    const userId = await requireUserId();
     const { tenantId, unitId, period, rentAmount, dueDate, paymentDate, amountPaid, serviceCharges, customAmount } = await request.json();
     if (!tenantId || !unitId || !rentAmount || !dueDate) {
       return Response.json({ error: 'tenantId, unitId, rentAmount and dueDate are required' }, { status: 400 });
@@ -48,6 +53,7 @@ export async function POST(request: Request) {
 
     const payment = await prisma.payment.create({
       data: {
+        userId,
         tenantId:    parseInt(tenantId),
         unitId:      parseInt(unitId),
         paymentType: 'RENT',
@@ -74,8 +80,11 @@ export async function POST(request: Request) {
       },
     });
 
+    await logAudit({ userId, action: 'CREATE', entity: 'Payment', entityId: String(payment.id), detail: `Tenant ${payment.tenant.name}` });
+
     return Response.json(payment, { status: 201 });
-  } catch {
+  } catch (error) {
+    if (error instanceof Response) return error;
     return Response.json({ error: 'Failed to create payment' }, { status: 500 });
   }
 }

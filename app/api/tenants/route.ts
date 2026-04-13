@@ -1,8 +1,12 @@
 import { prisma } from '@/lib/prisma';
+import { logAudit } from '@/lib/audit';
+import { requireUserId } from '@/lib/current-user';
 
 export async function GET() {
   try {
+    const userId = await requireUserId();
     const tenants = await prisma.tenant.findMany({
+      where: { userId },
       include: {
         houseType: true,
         unit: { include: { houseType: true } },
@@ -19,13 +23,15 @@ export async function GET() {
       orderBy: { createdAt: 'desc' },
     });
     return Response.json(tenants);
-  } catch {
+  } catch (error) {
+    if (error instanceof Response) return error;
     return Response.json({ error: 'Failed to fetch tenants' }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
   try {
+    const userId = await requireUserId();
     const {
       name, phone, houseTypeId, unitId, moveInDate,
       idNumber, country, emergencyContact, emergencyPhone,
@@ -35,10 +41,14 @@ export async function POST(request: Request) {
       return Response.json({ error: 'All fields are required' }, { status: 400 });
     }
 
-    const houseType = await prisma.houseType.findUnique({ where: { id: parseInt(houseTypeId) } });
+    const houseType = await prisma.houseType.findFirst({
+      where: { id: parseInt(houseTypeId), OR: [{ userId }, { userId: null }] },
+    });
     if (!houseType) return Response.json({ error: 'House type not found' }, { status: 400 });
 
-    const unit = await prisma.unit.findUnique({ where: { id: parseInt(unitId) } });
+    const unit = await prisma.unit.findFirst({
+      where: { id: parseInt(unitId), OR: [{ userId }, { userId: null }] },
+    });
     if (!unit) return Response.json({ error: 'Unit not found' }, { status: 400 });
 
     const rentAmount    = Number(houseType.rentAmount);
@@ -48,6 +58,7 @@ export async function POST(request: Request) {
     const tenant = await prisma.$transaction(async (tx) => {
       const created = await tx.tenant.create({
         data: {
+          userId,
           name,
           phone,
           houseTypeId:      parseInt(houseTypeId),
@@ -71,6 +82,7 @@ export async function POST(request: Request) {
       // Auto-create deposit record using the unit's depositMonths setting
       await tx.payment.create({
         data: {
+          userId,
           tenantId:    created.id,
           unitId:      parseInt(unitId),
           paymentType: 'DEPOSIT',
@@ -86,8 +98,11 @@ export async function POST(request: Request) {
       return created;
     });
 
+    await logAudit({ userId, action: 'CREATE', entity: 'Tenant', entityId: String(tenant.id), detail: tenant.name });
+
     return Response.json(tenant, { status: 201 });
   } catch (err) {
+    if (err instanceof Response) return err;
     const msg = err instanceof Error ? err.message : String(err);
     return Response.json({ error: 'Failed to create tenant', detail: msg }, { status: 500 });
   }

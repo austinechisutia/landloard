@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { PaymentStatus } from '@prisma/client';
+import { requireUserId } from '@/lib/current-user';
 
 function periodStart(year: number, month: number) {
   return new Date(Date.UTC(year, month, 1));
@@ -10,6 +11,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const userId = await requireUserId();
     const { id } = await params;
     const tenantId = parseInt(id);
 
@@ -17,12 +19,12 @@ export async function GET(
       where: { id: tenantId },
       include: { houseType: true, unit: true },
     });
-    if (!tenant) return Response.json({ error: 'Tenant not found' }, { status: 404 });
+    if (!tenant || tenant.userId !== userId) return Response.json({ error: 'Tenant not found' }, { status: 404 });
 
     const rentAmount = Number(tenant.houseType.rentAmount);
 
     const payments = await prisma.payment.findMany({
-      where: { tenantId },
+      where: { tenantId, userId },
       include: { services: { include: { service: true } } },
       orderBy: [{ paymentType: 'asc' }, { period: 'asc' }, { dueDate: 'asc' }],
     });
@@ -69,6 +71,7 @@ export async function GET(
       summary: { totalDue, totalPaid, totalBalance },
     });
   } catch (err) {
+    if (err instanceof Response) return err;
     console.error(err);
     return Response.json({ error: 'Failed to load ledger' }, { status: 500 });
   }

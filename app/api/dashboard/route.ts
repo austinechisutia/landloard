@@ -1,7 +1,9 @@
 import { prisma } from '@/lib/prisma';
+import { requireUserId } from '@/lib/current-user';
 
 export async function GET() {
   try {
+    const userId = await requireUserId();
     const now        = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const monthEnd   = new Date(now.getFullYear(), now.getMonth() + 1, 1);
@@ -15,17 +17,19 @@ export async function GET() {
       pendingAgg,
       totalPayments,
     ] = await Promise.all([
-      prisma.unit.count(),
-      prisma.unit.count({ where: { status: 'OCCUPIED' } }),
-      prisma.tenant.count(),
+      prisma.unit.count({ where: { userId } }),
+      prisma.unit.count({ where: { userId, status: 'OCCUPIED' } }),
+      prisma.tenant.count({ where: { userId } }),
 
-      // All-time: every shilling ever paid
-      prisma.payment.aggregate({ _sum: { amountPaid: true } }),
+      prisma.payment.aggregate({
+        _sum: { amountPaid: true },
+        where: { userId },
+      }),
 
-      // This month: payments received this month (by paymentDate, fallback to createdAt)
       prisma.payment.aggregate({
         _sum: { amountPaid: true },
         where: {
+          userId,
           OR: [
             { paymentDate: { gte: monthStart, lt: monthEnd } },
             { paymentDate: null, createdAt: { gte: monthStart, lt: monthEnd } },
@@ -33,14 +37,12 @@ export async function GET() {
         },
       }),
 
-      // Pending: total outstanding balance
       prisma.payment.aggregate({
         _sum: { balance: true },
-        where: { status: 'PENDING' },
+        where: { userId, status: 'PENDING' },
       }),
 
-      // Total payment records count
-      prisma.payment.count(),
+      prisma.payment.count({ where: { userId } }),
     ]);
 
     return Response.json({
@@ -53,7 +55,8 @@ export async function GET() {
       thisMonthRent:    Number(thisMonthAgg._sum.amountPaid ?? 0),
       totalPendingRent: Number(pendingAgg._sum.balance      ?? 0),
     });
-  } catch {
+  } catch (e) {
+    if (e instanceof Response) return e;
     return Response.json({ error: 'Failed to fetch dashboard stats' }, { status: 500 });
   }
 }

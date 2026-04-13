@@ -308,7 +308,7 @@ export default function PaymentsPage() {
           <button key={f.key} onClick={() => setFilter(f.key)}
             className={`px-4 py-1.5 rounded-full text-xs font-medium transition-colors ${
               filter === f.key
-                ? 'bg-indigo-600 text-white'
+                ? 'bg-[#11430F] text-[#e4f386]'
                 : 'bg-white border border-gray-300 text-gray-600 hover:bg-gray-50'
             }`}>
             {f.label}
@@ -375,7 +375,7 @@ export default function PaymentsPage() {
                     <button
                       type="button"
                       onClick={() => openTenantRecord(t)}
-                      className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 transition-colors whitespace-nowrap"
+                      className="brand-primary-btn whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
                     >
                       Record Payment
                     </button>
@@ -575,7 +575,7 @@ export default function PaymentsPage() {
                   value={form.customLabel}
                   onChange={e => setForm(f => ({ ...f, customLabel: e.target.value }))}
                   placeholder="Description (e.g. Penalty, Repairs)"
-                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="brand-input flex-1 rounded-lg border px-3 py-2 text-sm"
                 />
                 <input
                   type="number"
@@ -583,7 +583,7 @@ export default function PaymentsPage() {
                   onChange={e => setForm(f => ({ ...f, customAmount: e.target.value }))}
                   placeholder="0"
                   min="0" step="100"
-                  className="w-32 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="brand-input w-32 rounded-lg border px-3 py-2 text-sm"
                 />
               </div>
             </div>
@@ -614,7 +614,7 @@ export default function PaymentsPage() {
                   value={form.amountPaid}
                   onChange={e => setForm(f => ({ ...f, amountPaid: e.target.value }))}
                   min="0" step="100" autoFocus
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="brand-input w-full rounded-lg border px-3 py-2 text-sm"
                   required
                 />
               </div>
@@ -638,7 +638,7 @@ export default function PaymentsPage() {
               <label className="block text-sm font-medium text-gray-700 mb-1">Payment Date</label>
               <input type="date" value={form.paymentDate}
                 onChange={e => setForm(f => ({ ...f, paymentDate: e.target.value }))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                className="brand-input w-full rounded-lg border px-3 py-2 text-sm" />
             </div>
 
             <div className="flex gap-3 pt-1">
@@ -647,7 +647,7 @@ export default function PaymentsPage() {
                 Cancel
               </button>
               <button type="submit" disabled={submitting}
-                className="flex-1 bg-indigo-600 text-white rounded-lg py-2 text-sm hover:bg-indigo-700 disabled:opacity-50 transition-colors font-medium">
+                className="brand-primary-btn flex-1 rounded-lg py-2 text-sm font-medium transition-colors disabled:opacity-50">
                 {submitting ? 'Saving…' : 'Save Payment'}
               </button>
             </div>

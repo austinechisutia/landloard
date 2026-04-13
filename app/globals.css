@@ -4,6 +4,61 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
+:root {
+  --brand-forest: #11430f;
+  --brand-lime: #e4f386;
+  --brand-beige: #f5f0e8;
+  --brand-cream: #f8f5ef;
+  --brand-surface: rgba(255, 255, 255, 0.8);
+}
+
+.brand-page {
+  background:
+    radial-gradient(circle at top left, rgba(228, 243, 134, 0.35), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(17, 67, 15, 0.08), transparent 30%),
+    linear-gradient(135deg, var(--brand-cream) 0%, #efe6d6 100%);
+}
+
+.brand-surface {
+  background: var(--brand-surface);
+  border: 1px solid rgba(17, 67, 15, 0.1);
+  backdrop-filter: blur(10px);
+}
+
+.brand-primary-btn {
+  background: var(--brand-forest);
+  color: var(--brand-lime);
+}
+
+.brand-primary-btn:hover {
+  opacity: 0.92;
+}
+
+.brand-input {
+  border-color: #d1d5db;
+}
+
+.brand-input:focus {
+  outline: none;
+  border-color: var(--brand-forest);
+  box-shadow: 0 0 0 2px rgba(228, 243, 134, 0.7);
+}
+
+.brand-edit-btn {
+  color: var(--brand-forest);
+}
+
+.brand-edit-btn:hover {
+  background: rgba(228, 243, 134, 0.22);
+  color: #0b2c0a;
+}
+
+.brand-pill {
+  background: rgba(228, 243, 134, 0.22);
+  color: var(--brand-forest);
+  border: 1px solid rgba(17, 67, 15, 0.08);
+}
+
 @keyframes fade-in {
   from { opacity: 0; transform: translate(-50%, 12px); }
   to   { opacity: 1; transform: translate(-50%, 0);    }

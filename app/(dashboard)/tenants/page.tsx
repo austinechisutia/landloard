@@ -219,12 +219,12 @@ export default function TenantsPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Tenants</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{tenants.length} tenant{tenants.length !== 1 ? 's' : ''} total</p>
+          <h1 className="text-2xl font-bold text-[#11430F]">Tenants</h1>
+          <p className="mt-0.5 text-sm text-[#11430F]/60">{tenants.length} tenant{tenants.length !== 1 ? 's' : ''} total</p>
         </div>
         <button
           onClick={openAdd}
-          className="bg-indigo-600 text-white px-4 py-2 text-sm rounded-lg hover:bg-indigo-700 transition-colors font-medium whitespace-nowrap"
+          className="brand-primary-btn whitespace-nowrap rounded-xl px-4 py-2 text-sm font-medium transition-colors"
         >
           + Add Tenant
         </button>
@@ -289,7 +289,7 @@ export default function TenantsPage() {
                           </svg>
                         </button>
                         {/* Edit */}
-                        <button onClick={() => openEdit(t)} title="Edit" className="p-1.5 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-lg transition-colors">
+                        <button onClick={() => openEdit(t)} title="Edit" className="brand-edit-btn rounded-lg p-1.5 transition-colors">
                           <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                         </button>
                         {/* Delete */}
@@ -318,7 +318,7 @@ export default function TenantsPage() {
                 <input type="text" value={form.name}
                   onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
                   placeholder="e.g. John Mwangi"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="brand-input w-full rounded-lg border px-3 py-2 text-sm"
                   required />
               </div>
               <div>
@@ -326,7 +326,7 @@ export default function TenantsPage() {
                 <input type="tel" value={form.phone}
                   onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
                   placeholder="e.g. 0712345678"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="brand-input w-full rounded-lg border px-3 py-2 text-sm"
                   required />
               </div>
             </div>
@@ -337,14 +337,14 @@ export default function TenantsPage() {
                 <input type="text" value={form.idNumber}
                   onChange={e => setForm(f => ({ ...f, idNumber: e.target.value }))}
                   placeholder="National ID / Passport"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  className="brand-input w-full rounded-lg border px-3 py-2 text-sm" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Country</label>
                 <input type="text" value={form.country}
                   onChange={e => setForm(f => ({ ...f, country: e.target.value }))}
                   placeholder="e.g. Kenya"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  className="brand-input w-full rounded-lg border px-3 py-2 text-sm" />
               </div>
             </div>
 
@@ -353,7 +353,7 @@ export default function TenantsPage() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">House Type</label>
                 <select value={form.houseTypeId} onChange={e => onTypeChange(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="brand-input w-full rounded-lg border px-3 py-2 text-sm"
                   required>
                   <option value="">Select house type…</option>
                   {types.map(t => (
@@ -367,7 +367,7 @@ export default function TenantsPage() {
                 </label>
                 <select value={form.unitId}
                   onChange={e => setForm(f => ({ ...f, unitId: e.target.value }))}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50"
+                  className="brand-input w-full rounded-lg border px-3 py-2 text-sm disabled:bg-gray-50"
                   disabled={!form.houseTypeId || loadingUnits}
                   required>
                   <option value="">
@@ -392,7 +392,7 @@ export default function TenantsPage() {
               <label className="block text-sm font-medium text-gray-700 mb-1">Move-in Date</label>
               <input type="date" value={form.moveInDate}
                 onChange={e => setForm(f => ({ ...f, moveInDate: e.target.value }))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="brand-input w-full rounded-lg border px-3 py-2 text-sm"
                 required />
             </div>
 
@@ -403,14 +403,14 @@ export default function TenantsPage() {
                 <input type="text" value={form.emergencyContact}
                   onChange={e => setForm(f => ({ ...f, emergencyContact: e.target.value }))}
                   placeholder="e.g. Jane Mwangi"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  className="brand-input w-full rounded-lg border px-3 py-2 text-sm" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Emergency Contact Phone</label>
                 <input type="tel" value={form.emergencyPhone}
                   onChange={e => setForm(f => ({ ...f, emergencyPhone: e.target.value }))}
                   placeholder="e.g. 0722000000"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  className="brand-input w-full rounded-lg border px-3 py-2 text-sm" />
               </div>
             </div>
 
@@ -419,7 +419,7 @@ export default function TenantsPage() {
               <label className="block text-sm font-medium text-gray-700 mb-1">Number of People in Household</label>
               <input type="number" value={form.householdCount} min="1"
                 onChange={e => setForm(f => ({ ...f, householdCount: e.target.value }))}
-                className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                className="brand-input w-24 rounded-lg border px-3 py-2 text-sm" />
             </div>
 
             <div>
@@ -430,7 +430,7 @@ export default function TenantsPage() {
                 onChange={e => setForm(f => ({ ...f, householdMembers: e.target.value }))}
                 placeholder={"Alice Mwangi\nBob Mwangi"}
                 rows={3}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none" />
+                className="brand-input w-full resize-none rounded-lg border px-3 py-2 text-sm" />
             </div>
 
             <div className="flex gap-3 pt-1">
@@ -439,7 +439,7 @@ export default function TenantsPage() {
                 Cancel
               </button>
               <button type="submit" disabled={submitting || !form.unitId}
-                className="flex-1 bg-indigo-600 text-white rounded-lg py-2 text-sm hover:bg-indigo-700 disabled:opacity-50 transition-colors font-medium">
+                className="brand-primary-btn flex-1 rounded-lg py-2 text-sm font-medium transition-colors disabled:opacity-50">
                 {submitting ? 'Saving…' : editing ? 'Save Changes' : 'Add Tenant'}
               </button>
             </div>

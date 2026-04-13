@@ -102,18 +102,18 @@ export default function UnitsPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Units</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{units.length} unit{units.length !== 1 ? 's' : ''} total</p>
+          <h1 className="text-2xl font-bold text-[#11430F]">Units</h1>
+          <p className="mt-0.5 text-sm text-[#11430F]/60">{units.length} unit{units.length !== 1 ? 's' : ''} total</p>
         </div>
         <button
           onClick={openAdd}
-          className="bg-indigo-600 text-white px-4 py-2 text-sm rounded-lg hover:bg-indigo-700 transition-colors font-medium whitespace-nowrap"
+          className="brand-primary-btn whitespace-nowrap rounded-xl px-4 py-2 text-sm font-medium transition-colors"
         >
           + Add Unit
         </button>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="brand-surface overflow-hidden rounded-[1.5rem]">
         {loading ? (
           <div className="p-10 text-center text-sm text-gray-400">Loading…</div>
         ) : units.length === 0 ? (
@@ -142,7 +142,7 @@ export default function UnitsPage() {
                       <td className="px-6 py-3.5 text-gray-600">{u.houseType.name}</td>
                       <td className="px-6 py-3.5 text-right text-gray-700">{rent.toLocaleString()}</td>
                       <td className="px-6 py-3.5">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700">
+                        <span className="brand-pill inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium">
                           {u.depositMonths} month{u.depositMonths !== 1 ? 's' : ''}
                         </span>
                       </td>
@@ -163,7 +163,7 @@ export default function UnitsPage() {
                           <button
                             onClick={() => openEdit(u)}
                             title="Edit"
-                            className="p-1.5 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-lg transition-colors"
+                            className="brand-edit-btn rounded-lg p-1.5 transition-colors"
                           >
                             <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                           </button>
@@ -197,7 +197,7 @@ export default function UnitsPage() {
                 <select
                   value={form.houseTypeId}
                   onChange={e => setForm(f => ({ ...f, houseTypeId: e.target.value }))}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="brand-input w-full rounded-lg border px-3 py-2 text-sm"
                   required
                 >
                   <option value="">Select house type…</option>
@@ -218,7 +218,7 @@ export default function UnitsPage() {
                 value={form.name}
                 onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
                 placeholder="e.g. A1, B2, 101"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="brand-input w-full rounded-lg border px-3 py-2 text-sm"
                 required
               />
             </div>
@@ -234,7 +234,7 @@ export default function UnitsPage() {
                     onClick={() => setForm(f => ({ ...f, depositMonths: String(n) }))}
                     className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
                       form.depositMonths === String(n)
-                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        ? 'bg-[#11430F] text-[#e4f386] border-[#11430F]'
                         : 'border-gray-300 text-gray-700 hover:bg-gray-50'
                     }`}
                   >
@@ -243,7 +243,7 @@ export default function UnitsPage() {
                 ))}
               </div>
               {depositAmount !== null && (
-                <p className="mt-2 text-xs text-indigo-700 bg-indigo-50 rounded-lg px-3 py-2">
+                <p className="mt-2 rounded-lg bg-[#eef8cf] px-3 py-2 text-xs text-[#11430F]">
                   Deposit = <strong>KSh {depositAmount.toLocaleString()}</strong>
                   {' '}({form.depositMonths} × KSh {Number(selectedType?.rentAmount ?? 0).toLocaleString()})
                 </p>
@@ -261,7 +261,7 @@ export default function UnitsPage() {
                 Cancel
               </button>
               <button type="submit" disabled={submitting || (!editing && !form.houseTypeId)}
-                className="flex-1 bg-indigo-600 text-white rounded-lg py-2 text-sm hover:bg-indigo-700 disabled:opacity-50 transition-colors font-medium">
+                className="brand-primary-btn flex-1 rounded-lg py-2 text-sm font-medium transition-colors disabled:opacity-50">
                 {submitting ? 'Saving…' : editing ? 'Save Changes' : 'Add Unit'}
               </button>
             </div>

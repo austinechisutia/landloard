@@ -85,18 +85,18 @@ export default function ServicesPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Services</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Extra charges added on top of rent</p>
+          <h1 className="text-2xl font-bold text-[#11430F]">Services</h1>
+          <p className="mt-0.5 text-sm text-[#11430F]/60">Extra charges added on top of rent</p>
         </div>
         <button
           onClick={openAdd}
-          className="bg-indigo-600 text-white px-4 py-2 text-sm rounded-lg hover:bg-indigo-700 transition-colors font-medium whitespace-nowrap"
+          className="brand-primary-btn whitespace-nowrap rounded-xl px-4 py-2 text-sm font-medium transition-colors"
         >
           + Add Service
         </button>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="brand-surface overflow-hidden rounded-[1.5rem]">
         {loading ? (
           <div className="p-10 text-center text-sm text-gray-400">Loading…</div>
         ) : services.length === 0 ? (
@@ -142,7 +142,7 @@ export default function ServicesPage() {
                     </td>
                     <td className="px-6 py-3.5 text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <button onClick={() => openEdit(s)} title="Edit" className="p-1.5 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-lg transition-colors">
+                        <button onClick={() => openEdit(s)} title="Edit" className="brand-edit-btn rounded-lg p-1.5 transition-colors">
                           <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                         </button>
                         <button onClick={() => setDeleteId(s.id)} title="Delete" className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors">
@@ -168,7 +168,7 @@ export default function ServicesPage() {
                 value={form.name}
                 onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
                 placeholder="e.g. Water, Garbage, Security"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="brand-input w-full rounded-lg border px-3 py-2 text-sm"
                 required
               />
             </div>
@@ -177,7 +177,7 @@ export default function ServicesPage() {
               <select
                 value={form.type}
                 onChange={e => setForm(f => ({ ...f, type: e.target.value as 'FIXED' | 'PER_UNIT' }))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="brand-input w-full rounded-lg border px-3 py-2 text-sm"
               >
                 <option value="FIXED">Fixed — same charge every month</option>
                 <option value="PER_UNIT">Per unit — calculated from meter reading</option>
@@ -194,7 +194,7 @@ export default function ServicesPage() {
                   onChange={e => setForm(f => ({ ...f, unitPrice: e.target.value }))}
                   min="0" step="1"
                   placeholder="e.g. 50"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="brand-input w-full rounded-lg border px-3 py-2 text-sm"
                   required
                 />
               </div>
@@ -206,14 +206,14 @@ export default function ServicesPage() {
                     value={form.unitLabel}
                     onChange={e => setForm(f => ({ ...f, unitLabel: e.target.value }))}
                     placeholder="e.g. m³, litre"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="brand-input w-full rounded-lg border px-3 py-2 text-sm"
                   />
                 </div>
               )}
             </div>
 
             {form.type === 'PER_UNIT' && (
-              <p className="text-xs text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2">
+              <p className="rounded-lg border border-[#d8eba4] bg-[#eef8cf] px-3 py-2 text-xs text-[#11430F]">
                 When recording a payment, you'll enter the units consumed and the total will be calculated automatically.
               </p>
             )}
@@ -224,7 +224,7 @@ export default function ServicesPage() {
                 Cancel
               </button>
               <button type="submit" disabled={submitting}
-                className="flex-1 bg-indigo-600 text-white rounded-lg py-2 text-sm hover:bg-indigo-700 disabled:opacity-50 transition-colors font-medium">
+                className="brand-primary-btn flex-1 rounded-lg py-2 text-sm font-medium transition-colors disabled:opacity-50">
                 {submitting ? 'Saving…' : editing ? 'Save Changes' : 'Save'}
               </button>
             </div>
