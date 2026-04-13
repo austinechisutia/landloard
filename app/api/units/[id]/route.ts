@@ -7,13 +7,16 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    const { status } = await request.json();
-    if (!status) {
-      return Response.json({ error: 'status is required' }, { status: 400 });
-    }
+    const body = await request.json();
+    const { status, name, depositMonths } = body;
+
     const unit = await prisma.unit.update({
       where: { id: parseInt(id) },
-      data: { status: status as UnitStatus },
+      data: {
+        ...(status       ? { status: status as UnitStatus } : {}),
+        ...(name         ? { name }                         : {}),
+        ...(depositMonths !== undefined ? { depositMonths: parseInt(depositMonths) } : {}),
+      },
       include: { houseType: true },
     });
     return Response.json(unit);

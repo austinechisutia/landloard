@@ -4,6 +4,37 @@ import { api } from '@/lib/api';
 import Modal from '@/components/Modal';
 import Toast from '@/components/Toast';
 
+interface BillingRow {
+  type:          'DEPOSIT' | 'RENT';
+  period:        string | null;   // 'YYYY-MM' for RENT
+  monthIndex:    number;
+  dueDate:       string;
+  rentAmount:    number;
+  servicesTotal: number;
+  services:      { name: string; units: number | null; amount: number }[];
+  amountDue:     number;
+  amountPaid:    number;
+  balance:       number;
+  status:        string;
+  paymentId:     number | null;
+  paymentDate:   string | null;
+}
+
+interface TenantSchedule {
+  id:           number;
+  name:         string;
+  unitId:       number;
+  unitName:     string;
+  moveInDate:   string;
+  rentAmount:   number;
+  depositMonths: number;
+  depositAmount: number;
+  rows:         BillingRow[];
+  totalDue:     number;
+  totalPaid:    number;
+  totalBalance: number;
+}
+
 interface Service {
   id: number;
   name: string;
@@ -13,472 +44,568 @@ interface Service {
   active: boolean;
 }
 
-interface ServiceCharge {
-  serviceId: number;
-  units: string;   // input value; empty for FIXED
-  amount: number;  // calculated
-  included: boolean;
+function fmtPeriod(period: string): string {
+  const [yr, mo] = period.split('-');
+  return new Date(parseInt(yr), parseInt(mo) - 1, 1)
+    .toLocaleString('default', { month: 'short', year: 'numeric' });
 }
 
-interface Tenant {
-  id: number;
-  name: string;
-  unitId: number;
-  unit: { name: string; houseType: { rentAmount: number } };
-}
+type FilterMode = 'all' | 'pending' | 'paid';
 
-interface Payment {
-  id: number;
-  tenantId: number;
-  unitId: number;
-  rentAmount: number;
-  amountDue: number;
-  amountPaid: number;
-  balance: number;
-  status: 'PAID' | 'PENDING';
-  dueDate: string;
-  paymentDate: string | null;
-  tenant: { name: string };
-  unit: { name: string };
-  services: { serviceId: number; service: { name: string }; units: number | null; amount: number }[];
-}
-
-const blank = { tenantId: '', rentAmount: '', amountPaid: '', dueDate: '', paymentDate: '' };
-type Filter = '' | 'PAID' | 'PENDING';
+const emptyForm = {
+  tenantId:       0,
+  tenantName:     '',
+  totalOutstanding: 0,
+  pendingRows:    [] as BillingRow[],
+  amountPaid:     '',
+  paymentDate:    '',
+  customLabel:    '',
+  customAmount:   '',
+};
 
 export default function PaymentsPage() {
-  const [payments,      setPayments]      = useState<Payment[]>([]);
-  const [tenants,       setTenants]       = useState<Tenant[]>([]);
+  const [schedule,      setSchedule]      = useState<TenantSchedule[]>([]);
   const [services,      setServices]      = useState<Service[]>([]);
   const [loading,       setLoading]       = useState(true);
-  const [filter,        setFilter]        = useState<Filter>('');
+  const [filter,        setFilter]        = useState<FilterMode>('all');
+  const [expanded,      setExpanded]      = useState<Set<number>>(new Set());
   const [showModal,     setShowModal]     = useState(false);
-  const [editing,       setEditing]       = useState<Payment | null>(null);
-  const [form,          setForm]          = useState(blank);
-  const [charges,       setCharges]       = useState<ServiceCharge[]>([]);
+  const [form,          setForm]          = useState(emptyForm);
   const [submitting,    setSubmitting]    = useState(false);
-  const [deleteId,      setDeleteId]      = useState<number | null>(null);
-  const [toast,         setToast]         = useState<string | null>(null);
+  const [svcModal,      setSvcModal]      = useState<{ tenantId: number; tenantName: string; unitId: number; row: BillingRow } | null>(null);
+  const [svcLines,      setSvcLines]      = useState<{ serviceId: string; units: string; amount: number }[]>([]);
+  const [svcSubmitting, setSvcSubmitting] = useState(false);
+  const [toast,         setToast]         = useState<{ msg: string; type: 'error' | 'success' } | null>(null);
 
-  const load = (f: Filter = filter) => {
+  const load = () => {
     setLoading(true);
-    const url = f ? `/payments?status=${f}` : '/payments';
     Promise.all([
-      api.get<Payment[]>(url),
-      api.get<Tenant[]>('/tenants'),
+      api.get<TenantSchedule[]>('/payments/schedule'),
       api.get<Service[]>('/services'),
     ])
-      .then(([p, t, s]) => { setPayments(p); setTenants(t); setServices(s); })
+      .then(([s, svcs]) => {
+        setSchedule(s);
+        setServices(svcs);
+        // Auto-expand tenants with outstanding balance
+        setExpanded(new Set(s.filter((t: TenantSchedule) => t.totalBalance > 0).map((t: TenantSchedule) => t.id)));
+      })
+      .catch(() => setToast({ msg: 'Failed to load payments', type: 'error' }))
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(filter); }, [filter]);
+  useEffect(() => { load(); }, []);
 
-  // Build charge rows from active services, optionally pre-filling meter readings from localStorage
-  const initCharges = (svcList: Service[], tenantId?: string): ServiceCharge[] => {
-    let savedReadings: Record<string, string> = {};
-    if (tenantId) {
-      try {
-        const all = JSON.parse(localStorage.getItem('landlord_meter_readings') ?? '{}');
-        savedReadings = all[parseInt(tenantId)] ?? {};
-      } catch {}
-    }
-    return svcList.filter(s => s.active).map(s => {
-      if (s.type === 'FIXED') {
-        return { serviceId: s.id, units: '', amount: Number(s.unitPrice), included: true };
-      }
-      const units  = savedReadings[s.id] ?? '';
-      const qty    = parseInt(units) || 0;
-      return { serviceId: s.id, units, amount: qty * Number(s.unitPrice), included: qty > 0 };
+  // Filtered tenants
+  const visible = schedule.filter(t => {
+    if (filter === 'pending') return t.totalBalance > 0;
+    if (filter === 'paid')    return t.totalBalance <= 0;
+    return true;
+  });
+
+  const customAmt = parseFloat(form.customAmount) || 0;
+  const paid      = parseFloat(form.amountPaid) || 0;
+  const totalDue  = form.totalOutstanding + customAmt;
+  const balance   = totalDue - paid;
+
+  // Simulate oldest-first distribution for live preview
+  const distribution = (() => {
+    let remaining = paid;
+    return form.pendingRows.map(row => {
+      const toApply   = Math.min(remaining, row.balance);
+      remaining       = Math.max(0, remaining - toApply);
+      const newBalance = row.balance - toApply;
+      return {
+        row,
+        applied:    toApply,
+        newBalance,
+        willClear:  toApply > 0 && newBalance === 0,
+        partial:    toApply > 0 && newBalance > 0,
+        untouched:  toApply === 0,
+      };
     });
-  };
+  })();
 
-  const selectedTenant = tenants.find(t => String(t.id) === form.tenantId);
-  // In edit mode, rent comes from the editable form field; in add mode, from the selected tenant
-  const rent = editing
-    ? (parseFloat(form.rentAmount) || 0)
-    : Number(selectedTenant?.unit.houseType.rentAmount ?? 0);
-  const servicesTotal = charges.filter(c => c.included).reduce((s, c) => s + c.amount, 0);
-  const totalDue = rent + servicesTotal;
-  const paid = parseFloat(form.amountPaid) || 0;
-  const balance = totalDue - paid;
-  const previewStatus = paid >= totalDue && totalDue > 0 ? 'PAID' : 'PENDING';
-
-  const onTenantChange = (id: string) => {
-    setForm(f => ({ ...f, tenantId: id }));
-    setCharges(initCharges(services, id));
-  };
-
-  const updateCharge = (serviceId: number, field: 'units' | 'included', value: string | boolean) => {
-    setCharges(prev => prev.map(c => {
-      if (c.serviceId !== serviceId) return c;
-      if (field === 'included') return { ...c, included: value as boolean };
-      // units changed — recalculate amount
-      const svc = services.find(s => s.id === serviceId)!;
-      const units = parseInt(value as string) || 0;
-      return { ...c, units: value as string, amount: units * Number(svc.unitPrice), included: units > 0 };
-    }));
-  };
-
-  const openAdd = () => {
-    setEditing(null);
-    setForm(blank);
-    setCharges(initCharges(services));
-    setShowModal(true);
-  };
-
-  const openEdit = (p: Payment) => {
-    setEditing(p);
+  const openTenantRecord = (t: TenantSchedule) => {
+    const pendingRows = t.rows.filter(r => r.balance > 0);
     setForm({
-      tenantId:    String(p.tenantId),
-      rentAmount:  String(Number(p.rentAmount)),
-      amountPaid:  String(Number(p.amountPaid)),
-      dueDate:     p.dueDate?.split('T')[0]     || '',
-      paymentDate: p.paymentDate?.split('T')[0] || '',
+      tenantId:        t.id,
+      tenantName:      t.name,
+      totalOutstanding: t.totalBalance,
+      pendingRows,
+      amountPaid:      String(t.totalBalance),
+      paymentDate:     new Date().toISOString().split('T')[0],
+      customLabel:     '',
+      customAmount:    '',
     });
-    // Restore charges from the existing payment's service records
-    setCharges(p.services.map(c => ({
-      serviceId: c.serviceId,
-      units:     c.units != null ? String(c.units) : '',
-      amount:    Number(c.amount),
-      included:  true,
-    })));
     setShowModal(true);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setSubmitting(true);
     try {
-      const tenant = tenants.find(t => String(t.id) === form.tenantId);
-      const serviceCharges = charges
-        .filter(c => c.included && c.amount > 0)
-        .map(c => ({ serviceId: c.serviceId, units: parseFloat(c.units) || undefined, amount: c.amount }));
+      const now         = new Date();
+      const targetPeriod = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      let remaining     = paid;
+      const paidAt      = form.paymentDate || null;
 
-      if (editing) {
-        const serviceCharges = charges
-          .filter(c => c.included && c.amount > 0)
-          .map(c => ({ serviceId: c.serviceId, units: parseInt(c.units) || undefined, amount: c.amount }));
-        await api.patch(`/payments/${editing.id}`, {
-          rentAmount:    rent,
-          amountDue:     totalDue,
-          amountPaid:    paid,
-          dueDate:       form.dueDate,
-          paymentDate:   form.paymentDate || null,
-          serviceCharges,
-        });
-      } else {
-        await api.post('/payments', {
-          tenantId:      parseInt(form.tenantId),
-          unitId:        tenant?.unitId,
-          rentAmount:    rent,
-          amountPaid:    paid,
-          dueDate:       form.dueDate,
-          paymentDate:   form.paymentDate || null,
-          serviceCharges,
+      // 1. Clear deposit first if pending
+      const depositRow = form.pendingRows.find(r => r.type === 'DEPOSIT');
+      if (depositRow && remaining > 0) {
+        const toDeposit = Math.min(remaining, depositRow.balance);
+        const newPaid   = depositRow.amountPaid + toDeposit;
+        if (depositRow.paymentId) {
+          await api.patch(`/payments/${depositRow.paymentId}`, {
+            amountDue:   depositRow.amountDue,
+            amountPaid:  newPaid,
+            dueDate:     depositRow.dueDate.split('T')[0],
+            paymentDate: paidAt,
+          });
+        } else {
+          await api.post(`/tenants/${form.tenantId}/ledger`, {
+            target: 'DEPOSIT', amount: toDeposit, paymentDate: paidAt,
+          });
+        }
+        remaining -= toDeposit;
+      }
+
+      // 2. Apply remainder to rent months oldest-first via ledger
+      if (remaining > 0 || customAmt > 0) {
+        await api.post(`/tenants/${form.tenantId}/ledger`, {
+          target:       targetPeriod,
+          amount:       remaining,
+          paymentDate:  paidAt,
+          customAmount: customAmt || undefined,
+          customLabel:  form.customLabel || undefined,
         });
       }
+
       setShowModal(false);
       load();
+      setToast({ msg: 'Payment recorded successfully', type: 'success' });
     } catch (err) {
-      setToast(err instanceof Error ? err.message : 'Error saving payment');
+      setToast({ msg: err instanceof Error ? err.message : 'Error saving payment', type: 'error' });
     } finally {
       setSubmitting(false);
     }
   };
 
-  const updateStatus = async (id: number, status: 'PAID' | 'PENDING') => {
-    const p = payments.find(x => x.id === id);
-    if (!p) return;
-    if (status === 'PENDING' && Number(p.amountPaid) >= Number(p.amountDue)) {
-      setToast('Cannot mark as pending — this payment has been fully paid.');
-      return;
-    }
-    const due        = Number(p.amountDue);
-    const amountPaid = status === 'PAID' ? due : Number(p.amountPaid);
-    const balance    = due - amountPaid;
-    setPayments(prev => prev.map(x => x.id === id ? { ...x, status, amountPaid, balance } : x));
+  const openSvcEdit = (tenantId: number, tenantName: string, unitId: number, row: BillingRow) => {
+    // Pre-populate lines from existing row services, matched to service list
+    const lines = row.services.map(rs => {
+      const svc = services.find(s => s.name === rs.name);
+      return {
+        serviceId: svc ? String(svc.id) : '',
+        units:     rs.units !== null ? String(rs.units) : '',
+        amount:    rs.amount,
+      };
+    });
+    setSvcLines(lines.length > 0 ? lines : [{ serviceId: '', units: '', amount: 0 }]);
+    setSvcModal({ tenantId, tenantName, unitId, row });
+  };
+
+  const calcLineAmount = (serviceId: string, units: string): number => {
+    const svc = services.find(s => s.id === parseInt(serviceId));
+    if (!svc) return 0;
+    if (svc.type === 'FIXED') return Number(svc.unitPrice);
+    return Number(svc.unitPrice) * (parseFloat(units) || 0);
+  };
+
+  const updateSvcLine = (i: number, field: 'serviceId' | 'units', value: string) => {
+    setSvcLines(prev => prev.map((line, idx) => {
+      if (idx !== i) return line;
+      const next = { ...line, [field]: value };
+      next.amount = calcLineAmount(
+        field === 'serviceId' ? value : line.serviceId,
+        field === 'units'     ? value : line.units,
+      );
+      return next;
+    }));
+  };
+
+  const handleSvcSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!svcModal) return;
+    setSvcSubmitting(true);
     try {
-      await api.patch(`/payments/${id}`, {
-        rentAmount: Number(p.rentAmount), amountDue: due, amountPaid, dueDate: p.dueDate, paymentDate: p.paymentDate, status,
-      });
+      const { tenantId, unitId, row } = svcModal;
+      const validLines = svcLines.filter(l => l.serviceId);
+      const serviceCharges = validLines.map(l => ({
+        serviceId: parseInt(l.serviceId),
+        units:     services.find(s => s.id === parseInt(l.serviceId))?.type === 'PER_UNIT'
+                     ? parseFloat(l.units) || null
+                     : null,
+        amount:    l.amount,
+      }));
+      const svcTotal    = serviceCharges.reduce((s, c) => s + c.amount, 0);
+      const newAmountDue = row.rentAmount + svcTotal;
+
+      if (row.paymentId) {
+        // Payment record exists — patch it
+        await api.patch(`/payments/${row.paymentId}`, {
+          rentAmount:   row.rentAmount,
+          amountDue:    newAmountDue,
+          amountPaid:   row.amountPaid,
+          dueDate:      row.dueDate.split('T')[0],
+          paymentDate:  row.paymentDate ? row.paymentDate.split('T')[0] : null,
+          serviceCharges,
+        });
+      } else {
+        // No payment record yet — create stub via /api/payments POST
+        await api.post('/payments', {
+          tenantId,
+          unitId,
+          period:      row.period,
+          rentAmount:  row.rentAmount,
+          dueDate:     row.dueDate.split('T')[0],
+          amountPaid:  0,
+          serviceCharges,
+        });
+      }
+      setSvcModal(null);
       load();
+      setToast({ msg: 'Services updated', type: 'success' });
     } catch (err) {
-      setPayments(prev => prev.map(x => x.id === id ? { ...x, status: p.status, amountPaid: Number(p.amountPaid), balance: Number(p.balance) } : x));
-      setToast(err instanceof Error ? err.message : 'Failed to update status');
+      setToast({ msg: err instanceof Error ? err.message : 'Error saving services', type: 'error' });
+    } finally {
+      setSvcSubmitting(false);
     }
   };
 
-  const handleDelete = async (id: number) => {
-    try {
-      await api.delete(`/payments/${id}`);
-      setDeleteId(null);
-      load();
-    } catch (err) {
-      setToast(err instanceof Error ? err.message : 'Error deleting payment');
-    }
+  const statusBadge = (status: string) => {
+    const map: Record<string, string> = {
+      PAID:    'bg-green-100 text-green-700',
+      PARTIAL: 'bg-amber-100 text-amber-700',
+      PENDING: 'bg-red-100 text-red-700',
+    };
+    return `inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${map[status] ?? 'bg-gray-100 text-gray-600'}`;
   };
+
+  const pendingCount = schedule.filter(t => t.totalBalance > 0).length;
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Payments</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{payments.length} record{payments.length !== 1 ? 's' : ''}</p>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {schedule.length} tenant{schedule.length !== 1 ? 's' : ''}
+            {pendingCount > 0 && (
+              <span className="ml-2 text-red-600 font-medium">· {pendingCount} with outstanding balance</span>
+            )}
+          </p>
         </div>
-        <button onClick={openAdd} className="bg-indigo-600 text-white px-4 py-2 text-sm rounded-lg hover:bg-indigo-700 transition-colors font-medium whitespace-nowrap">
-          + Record Payment
-        </button>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        {(['', 'PAID', 'PENDING'] as Filter[]).map(f => (
-          <button key={f} onClick={() => setFilter(f)}
+      {/* Filter tabs */}
+      <div className="flex gap-2">
+        {([
+          { key: 'all',     label: 'All Tenants' },
+          { key: 'pending', label: 'Pending' },
+          { key: 'paid',    label: 'Fully Paid' },
+        ] as { key: FilterMode; label: string }[]).map(f => (
+          <button key={f.key} onClick={() => setFilter(f.key)}
             className={`px-4 py-1.5 rounded-full text-xs font-medium transition-colors ${
-              filter === f ? 'bg-indigo-600 text-white' : 'bg-white border border-gray-300 text-gray-600 hover:bg-gray-50'
+              filter === f.key
+                ? 'bg-indigo-600 text-white'
+                : 'bg-white border border-gray-300 text-gray-600 hover:bg-gray-50'
             }`}>
-            {f === '' ? 'All' : f.charAt(0) + f.slice(1).toLowerCase()}
+            {f.label}
           </button>
         ))}
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        {loading ? (
-          <div className="p-10 text-center text-sm text-gray-400">Loading…</div>
-        ) : payments.length === 0 ? (
-          <div className="p-10 text-center text-sm text-gray-400">No payments found.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-100">
-                <tr>
-                  <th className="text-left px-6 py-3 text-gray-500 font-medium">Tenant</th>
-                  <th className="text-right px-6 py-3 text-gray-500 font-medium">Rent</th>
-                  <th className="text-right px-6 py-3 text-gray-500 font-medium">Services</th>
-                  <th className="text-right px-6 py-3 text-gray-500 font-medium">Total Due</th>
-                  <th className="text-right px-6 py-3 text-gray-500 font-medium">Paid</th>
-                  <th className="text-right px-6 py-3 text-gray-500 font-medium">Balance</th>
-                  <th className="text-left px-6 py-3 text-gray-500 font-medium">Due Date</th>
-                  <th className="text-left px-6 py-3 text-gray-500 font-medium">Status</th>
-                  <th className="text-right px-6 py-3 text-gray-500 font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(() => {
-                  // Group payments by tenantId, preserving order of first appearance
-                  const groups: { tenantId: number; rows: typeof payments }[] = [];
-                  const seen = new Map<number, typeof payments>();
-                  for (const p of payments) {
-                    if (!seen.has(p.tenantId)) {
-                      const rows: typeof payments = [];
-                      seen.set(p.tenantId, rows);
-                      groups.push({ tenantId: p.tenantId, rows });
-                    }
-                    seen.get(p.tenantId)!.push(p);
-                  }
-                  return groups.map(({ rows }) =>
-                    rows.map((p, rowIdx) => {
-                  const svcTotal = p.services.reduce((s, c) => s + Number(c.amount), 0);
-                  const isFirst  = rowIdx === 0;
-                  const span     = rows.length;
-                  return (
-                    <tr key={p.id} className={`hover:bg-gray-50 ${rowIdx > 0 ? 'border-t border-dashed border-gray-100' : 'border-t border-gray-100'}`}>
-                      {isFirst && (
-                        <td rowSpan={span} className="px-6 py-3.5 font-medium text-gray-900 align-top border-r border-gray-100">
-                          <div>{p.tenant.name}</div>
-                          <div className="text-xs text-gray-400 font-normal">{p.unit.name}</div>
-                        </td>
-                      )}
-                      <td className="px-6 py-3.5 text-right text-gray-700">
-                        {(Number(p.rentAmount) || (Number(p.amountDue) - p.services.reduce((s, c) => s + Number(c.amount), 0))).toLocaleString()}
-                      </td>
-                      <td className="px-6 py-3.5 text-right text-gray-500">
-                        {svcTotal > 0 ? (
-                          <span title={p.services.map(c => `${c.service.name}: ${Number(c.amount).toLocaleString()}`).join('\n')}>
-                            {svcTotal.toLocaleString()}
-                          </span>
-                        ) : '—'}
-                      </td>
-                      <td className="px-6 py-3.5 text-right font-medium text-gray-800">{Number(p.amountDue).toLocaleString()}</td>
-                      <td className="px-6 py-3.5 text-right text-gray-700">{Number(p.amountPaid).toLocaleString()}</td>
-                      <td className={`px-6 py-3.5 text-right font-medium ${Number(p.balance) > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                        {Number(p.balance).toLocaleString()}
-                      </td>
-                      <td className="px-6 py-3.5 text-gray-600">{new Date(p.dueDate).toLocaleDateString()}</td>
-                      <td className="px-6 py-3.5">
-                        <select
-                          value={p.status}
-                          onChange={e => updateStatus(p.id, e.target.value as 'PAID' | 'PENDING')}
-                          className={`text-xs font-medium rounded-full px-2.5 py-0.5 border-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                            p.status === 'PAID' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                          }`}
-                        >
-                          <option value="PAID">Paid</option>
-                          <option value="PENDING">Pending</option>
-                        </select>
-                      </td>
-                      <td className="px-6 py-3.5 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <button onClick={() => openEdit(p)} title="Edit" className="p-1.5 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-lg transition-colors">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                          </button>
-                          <button onClick={() => setDeleteId(p.id)} title="Delete" className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-                          </button>
-                        </div>
-                      </td>
+      {loading ? (
+        <div className="p-10 text-center text-sm text-gray-400">Loading…</div>
+      ) : visible.length === 0 ? (
+        <div className="p-10 text-center text-sm text-gray-400 bg-white rounded-xl border border-gray-200">
+          No tenants found.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {visible.map(t => {
+            const isOpen = expanded.has(t.id);
+            const toggle = () => setExpanded(prev => {
+              const next = new Set(prev);
+              isOpen ? next.delete(t.id) : next.add(t.id);
+              return next;
+            });
+            return (
+            <div key={t.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              {/* Tenant header — click to expand/collapse */}
+              <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5 bg-gray-50 border-b border-gray-100">
+                <button
+                  type="button"
+                  onClick={toggle}
+                  className="flex items-center gap-3 min-w-0 text-left flex-1"
+                >
+                  <svg
+                    className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform duration-150 ${isOpen ? 'rotate-90' : ''}`}
+                    fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                  </svg>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                    <span className="font-semibold text-gray-900">{t.name}</span>
+                    <span className="text-xs text-gray-400">Unit {t.unitName}</span>
+                    <span className="text-xs text-gray-400">·</span>
+                    <span className="text-xs text-gray-400">Move-in {new Date(t.moveInDate).toLocaleDateString()}</span>
+                    <span className="text-xs text-gray-400">·</span>
+                    <span className="text-xs text-gray-400">Rent KSh {t.rentAmount.toLocaleString()}</span>
+                  </div>
+                </button>
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-5 text-sm">
+                    <div className="text-right">
+                      <div className="text-xs text-gray-400">Charged</div>
+                      <div className="font-medium text-gray-900">KSh {t.totalDue.toLocaleString()}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-gray-400">Paid</div>
+                      <div className="font-medium text-green-700">KSh {t.totalPaid.toLocaleString()}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-gray-400">{t.totalBalance < 0 ? 'Credit' : 'Outstanding'}</div>
+                      <div className={`font-semibold ${t.totalBalance > 0 ? 'text-red-600' : t.totalBalance < 0 ? 'text-blue-700' : 'text-green-700'}`}>
+                        {t.totalBalance < 0 ? '-' : ''}KSh {Math.abs(t.totalBalance).toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                  {t.totalBalance > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => openTenantRecord(t)}
+                      className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 transition-colors whitespace-nowrap"
+                    >
+                      Record Payment
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Billing rows table — collapsible */}
+              {isOpen && <div className="overflow-x-auto border-t border-gray-100">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b border-gray-100">
+                    <tr>
+                      <th className="text-left px-4 py-2.5 text-xs text-gray-500 font-medium">Type</th>
+                      <th className="text-left px-4 py-2.5 text-xs text-gray-500 font-medium">Period</th>
+                      <th className="text-right px-4 py-2.5 text-xs text-gray-500 font-medium">Rent</th>
+                      <th className="text-right px-4 py-2.5 text-xs text-gray-500 font-medium">Services</th>
+                      <th className="text-right px-4 py-2.5 text-xs text-gray-500 font-medium">Total Due</th>
+                      <th className="text-right px-4 py-2.5 text-xs text-gray-500 font-medium">Paid</th>
+                      <th className="text-right px-4 py-2.5 text-xs text-gray-500 font-medium">Balance</th>
+                      <th className="text-left px-4 py-2.5 text-xs text-gray-500 font-medium">Due Date</th>
+                      <th className="text-left px-4 py-2.5 text-xs text-gray-500 font-medium">Paid On</th>
+                      <th className="text-center px-4 py-2.5 text-xs text-gray-500 font-medium">Status</th>
+                      <th className="px-4 py-2.5" />
                     </tr>
-                  );
-                }));
-                })()}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {showModal && (
-        <Modal title={editing ? 'Edit Payment' : 'Record Payment'} onClose={() => setShowModal(false)}>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Tenant */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Tenant</label>
-              <select
-                value={form.tenantId}
-                onChange={e => onTenantChange(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                required disabled={!!editing}
-              >
-                <option value="">Select tenant…</option>
-                {tenants.map(t => (
-                  <option key={t.id} value={t.id}>{t.name} — Unit {t.unit.name}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Rent info (add mode) or editable rent (edit mode) */}
-            {editing ? (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Rent Amount (KSh)</label>
-                <input
-                  type="number"
-                  value={form.rentAmount}
-                  onChange={e => setForm(f => ({ ...f, rentAmount: e.target.value }))}
-                  min="0" step="100"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  required
-                />
-              </div>
-            ) : selectedTenant ? (
-              <div className="bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2 text-xs text-indigo-700">
-                Unit <strong>{selectedTenant.unit.name}</strong> · Rent:{' '}
-                <strong>KSh {Number(selectedTenant.unit.houseType.rentAmount).toLocaleString()}</strong>
-              </div>
-            ) : null}
-
-            {/* Services */}
-            {!editing && charges.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-sm font-medium text-gray-700">Additional Services</p>
-                <div className="border border-gray-200 rounded-lg divide-y divide-gray-100">
-                  {charges.map(c => {
-                    const svc = services.find(s => s.id === c.serviceId)!;
-                    return (
-                      <div key={c.serviceId} className="flex items-center gap-3 px-3 py-2.5">
-                        <input
-                          type="checkbox"
-                          checked={c.included}
-                          onChange={e => updateCharge(c.serviceId, 'included', e.target.checked)}
-                          disabled={svc.type === 'PER_UNIT'}
-                          className="accent-indigo-600"
-                        />
-                        <span className="flex-1 text-sm text-gray-800">{svc.name}</span>
-                        {svc.type === 'PER_UNIT' ? (
-                          <div className="flex items-center gap-1.5">
-                            <input
-                              type="number"
-                              value={c.units}
-                              onChange={e => updateCharge(c.serviceId, 'units', e.target.value)}
-                              placeholder="0"
-                              min="0"
-                              step="1"
-                              className="w-20 border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                            />
-                            <span className="text-xs text-gray-400">{svc.unitLabel ?? 'units'}</span>
-                            <span className="text-xs text-gray-500 w-20 text-right">
-                              = KSh {c.amount.toLocaleString()}
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-xs text-gray-600 font-medium">
-                            KSh {Number(svc.unitPrice).toLocaleString()}
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {t.rows.map((row, i) => (
+                      <tr key={i} className={`${row.status === 'PENDING' && row.amountPaid === 0 ? 'bg-red-50/40' : 'hover:bg-gray-50'}`}>
+                        {/* Type */}
+                        <td className="px-4 py-2.5">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                            row.type === 'DEPOSIT' ? 'bg-violet-100 text-violet-700' : 'bg-blue-100 text-blue-700'
+                          }`}>
+                            {row.type === 'DEPOSIT' ? 'Deposit' : `Rent`}
                           </span>
+                        </td>
+                        {/* Period */}
+                        <td className="px-4 py-2.5 text-gray-700 text-xs">
+                          {row.type === 'RENT' && row.period ? (
+                            <div>
+                              <span className="font-medium">{fmtPeriod(row.period)}</span>
+                              <span className="text-gray-400 ml-1">Month {row.monthIndex}</span>
+                            </div>
+                          ) : (
+                            <span className="text-gray-500">Move-in</span>
+                          )}
+                        </td>
+                        {/* Rent */}
+                        <td className="px-4 py-2.5 text-right text-gray-700">
+                          {row.rentAmount > 0 ? row.rentAmount.toLocaleString() : '—'}
+                        </td>
+                        {/* Services */}
+                        <td className="px-4 py-2.5 text-right text-gray-500">
+                          {row.servicesTotal > 0 ? (
+                            <span title={row.services.map(s =>
+                              `${s.name}${s.units !== null ? ` (${s.units})` : ''}: KSh ${s.amount.toLocaleString()}`
+                            ).join('\n')} className="cursor-help underline decoration-dotted">
+                              {row.servicesTotal.toLocaleString()}
+                            </span>
+                          ) : row.paymentId ? '—' : (
+                            <span className="text-gray-300 text-xs">not yet recorded</span>
+                          )}
+                        </td>
+                        {/* Total Due */}
+                        <td className="px-4 py-2.5 text-right font-medium text-gray-800">
+                          {row.amountDue.toLocaleString()}
+                        </td>
+                        {/* Paid */}
+                        <td className="px-4 py-2.5 text-right text-gray-700">
+                          {row.amountPaid > 0 ? row.amountPaid.toLocaleString() : '—'}
+                        </td>
+                        {/* Balance */}
+                        <td className={`px-4 py-2.5 text-right font-medium ${row.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                          {row.balance.toLocaleString()}
+                        </td>
+                        {/* Due Date */}
+                        <td className="px-4 py-2.5 text-xs text-gray-500">
+                          {new Date(row.dueDate).toLocaleDateString()}
+                        </td>
+                        {/* Paid On */}
+                        <td className="px-4 py-2.5 text-xs text-gray-500">
+                          {row.paymentDate
+                            ? new Date(row.paymentDate).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+                            : row.amountPaid > 0
+                              ? <span className="text-amber-500">partial</span>
+                              : <span className="text-gray-300">—</span>
+                          }
+                        </td>
+                        {/* Status */}
+                        <td className="px-4 py-2.5 text-center">
+                          {(() => {
+                            const s = row.status === 'PENDING' && row.amountPaid > 0 ? 'PARTIAL' : row.status;
+                            return <span className={statusBadge(s)}>{s === 'PARTIAL' ? 'Partial' : s.charAt(0) + s.slice(1).toLowerCase()}</span>;
+                          })()}
+                        </td>
+                        {/* Edit Services */}
+                        <td className="px-4 py-2.5 text-center">
+                          {row.type === 'RENT' && (
+                            <button
+                              title="Edit Services"
+                              onClick={() => openSvcEdit(t.id, t.name, t.unitId, row)}
+                              className="p-1.5 text-teal-600 hover:text-teal-800 hover:bg-teal-50 rounded-lg transition-colors"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+                              </svg>
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  {/* Summary footer */}
+                  <tfoot className="border-t-2 border-gray-200 bg-gray-50">
+                    <tr>
+                      <td colSpan={4} className="px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Totals</td>
+                      <td className="px-4 py-2.5 text-right font-semibold text-gray-900">{t.totalDue.toLocaleString()}</td>
+                      <td className="px-4 py-2.5 text-right font-semibold text-green-700">{t.totalPaid.toLocaleString()}</td>
+                      <td className={`px-4 py-2.5 text-right font-semibold ${t.totalBalance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                        {t.totalBalance.toLocaleString()}
+                      </td>
+                      <td colSpan={4} />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>}
+            </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Record payment modal */}
+      {showModal && (
+        <Modal title={`Record Payment — ${form.tenantName}`} onClose={() => setShowModal(false)}>
+          <form onSubmit={handleSubmit} className="space-y-4">
+
+            {/* Outstanding breakdown with live distribution preview */}
+            {form.pendingRows.length > 0 && (
+              <div className="border border-gray-200 rounded-lg overflow-hidden text-sm">
+                <div className="px-3 py-2 bg-gray-50 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                  Payment Distribution
+                </div>
+                <div className="divide-y divide-gray-100">
+                  {distribution.map(({ row, applied, newBalance, willClear, partial, untouched }, i) => (
+                    <div key={i} className={`flex items-center justify-between px-3 py-2.5 transition-colors ${
+                      willClear ? 'bg-green-50/60' : partial ? 'bg-amber-50/60' : ''
+                    }`}>
+                      <div className="flex items-center gap-2">
+                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${
+                          row.type === 'DEPOSIT' ? 'bg-violet-100 text-violet-700' : 'bg-blue-100 text-blue-700'
+                        }`}>
+                          {row.type === 'DEPOSIT' ? 'Deposit' : row.period ? fmtPeriod(row.period) : 'Rent'}
+                        </span>
+                        {row.type === 'RENT' && row.period && (
+                          <span className="text-xs text-gray-400">Month {row.monthIndex}</span>
                         )}
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Edit mode: show existing service charges as editable amounts */}
-            {editing && charges.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-sm font-medium text-gray-700">Service Charges</p>
-                <div className="border border-gray-200 rounded-lg divide-y divide-gray-100">
-                  {charges.map((c, i) => {
-                    const svc = services.find(s => s.id === c.serviceId);
-                    return (
-                      <div key={i} className="flex items-center gap-3 px-3 py-2.5">
-                        <span className="flex-1 text-sm text-gray-700">{svc?.name ?? `Service #${c.serviceId}`}</span>
-                        <div className="flex items-center gap-1.5">
-                          {c.units !== '' && (
-                            <>
-                              <input
-                                type="number"
-                                value={c.units}
-                                onChange={e => updateCharge(c.serviceId, 'units', e.target.value)}
-                                min="0" step="1"
-                                className="w-16 border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                              />
-                              <span className="text-xs text-gray-400">{svc?.unitLabel ?? 'units'} ×</span>
-                            </>
-                          )}
-                          <span className="text-xs font-medium text-gray-700 w-20 text-right">
-                            KSh {c.amount.toLocaleString()}
+                      <div className="flex items-center gap-2 text-xs">
+                        {applied > 0 && (
+                          <span className="text-gray-500">
+                            −{applied.toLocaleString()}
                           </span>
-                        </div>
+                        )}
+                        <span className={`font-semibold ${
+                          willClear ? 'text-green-600' : partial ? 'text-amber-600' : 'text-red-600'
+                        }`}>
+                          KSh {newBalance.toLocaleString()}
+                        </span>
+                        <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                          willClear  ? 'bg-green-100 text-green-700'
+                          : partial  ? 'bg-amber-100 text-amber-700'
+                          : untouched ? 'bg-red-100 text-red-600'
+                          : 'bg-gray-100 text-gray-500'
+                        }`}>
+                          {willClear ? 'Cleared' : partial ? 'Partial' : 'Pending'}
+                        </span>
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Totals summary — show in both add and edit mode */}
-            {(editing || selectedTenant) && (
-              <div className="bg-gray-50 rounded-lg px-3 py-2.5 space-y-1 text-sm">
-                <div className="flex justify-between text-gray-600">
-                  <span>Rent</span>
-                  <span>KSh {rent.toLocaleString()}</span>
-                </div>
-                {charges.filter(c => c.included && c.amount > 0).map(c => {
-                  const svc = services.find(s => s.id === c.serviceId)!;
-                  return (
-                    <div key={c.serviceId} className="flex justify-between text-gray-600">
-                      <span>{svc.name}</span>
-                      <span>KSh {c.amount.toLocaleString()}</span>
                     </div>
-                  );
-                })}
-                <div className="flex justify-between font-semibold text-gray-900 border-t border-gray-200 pt-1 mt-1">
-                  <span>Total Due</span>
-                  <span>KSh {totalDue.toLocaleString()}</span>
+                  ))}
+                </div>
+                <div className="flex justify-between items-center px-3 py-2 bg-red-50 border-t border-red-100 font-semibold text-sm">
+                  <span className="text-gray-700">Total Outstanding</span>
+                  <span className="text-red-600">KSh {form.totalOutstanding.toLocaleString()}</span>
                 </div>
               </div>
             )}
 
-            {/* Amount paid */}
+            {/* Custom charge */}
+            <div className="space-y-1.5">
+              <p className="text-sm font-medium text-gray-700">
+                Custom Charge <span className="text-xs font-normal text-gray-400">(optional)</span>
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={form.customLabel}
+                  onChange={e => setForm(f => ({ ...f, customLabel: e.target.value }))}
+                  placeholder="Description (e.g. Penalty, Repairs)"
+                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <input
+                  type="number"
+                  value={form.customAmount}
+                  onChange={e => setForm(f => ({ ...f, customAmount: e.target.value }))}
+                  placeholder="0"
+                  min="0" step="100"
+                  className="w-32 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+            </div>
+
+            {/* Total + amount paid */}
+            <div className="bg-gray-50 rounded-lg px-3 py-2.5 space-y-1.5 text-sm">
+              <div className="flex justify-between text-gray-600">
+                <span>Outstanding</span>
+                <span>KSh {form.totalOutstanding.toLocaleString()}</span>
+              </div>
+              {customAmt > 0 && (
+                <div className="flex justify-between text-amber-700">
+                  <span>{form.customLabel || 'Custom charge'}</span>
+                  <span>+ KSh {customAmt.toLocaleString()}</span>
+                </div>
+              )}
+              <div className="flex justify-between font-semibold text-gray-900 border-t border-gray-200 pt-1.5">
+                <span>Total to Clear</span>
+                <span>KSh {totalDue.toLocaleString()}</span>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Amount Paid (KSh)</label>
@@ -486,41 +613,32 @@ export default function PaymentsPage() {
                   type="number"
                   value={form.amountPaid}
                   onChange={e => setForm(f => ({ ...f, amountPaid: e.target.value }))}
-                  min="0" step="100"
+                  min="0" step="100" autoFocus
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  required
                 />
               </div>
               <div className="flex flex-col justify-end pb-0.5">
                 {totalDue > 0 && (
                   <div className="flex items-center justify-between bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm">
                     <span className={`font-semibold ${balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                      Balance: KSh {balance.toLocaleString()}
+                      Balance: KSh {Math.max(0, balance).toLocaleString()}
                     </span>
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                      previewStatus === 'PAID' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                      balance <= 0 ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
                     }`}>
-                      {previewStatus === 'PAID' ? 'Paid' : 'Pending'}
+                      {balance <= 0 ? 'Cleared' : 'Partial'}
                     </span>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Dates */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
-                <input type="date" value={form.dueDate}
-                  onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  required />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Payment Date</label>
-                <input type="date" value={form.paymentDate}
-                  onChange={e => setForm(f => ({ ...f, paymentDate: e.target.value }))}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-              </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Payment Date</label>
+              <input type="date" value={form.paymentDate}
+                onChange={e => setForm(f => ({ ...f, paymentDate: e.target.value }))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
             </div>
 
             <div className="flex gap-3 pt-1">
@@ -530,30 +648,102 @@ export default function PaymentsPage() {
               </button>
               <button type="submit" disabled={submitting}
                 className="flex-1 bg-indigo-600 text-white rounded-lg py-2 text-sm hover:bg-indigo-700 disabled:opacity-50 transition-colors font-medium">
-                {submitting ? 'Saving…' : editing ? 'Save Changes' : 'Record Payment'}
+                {submitting ? 'Saving…' : 'Save Payment'}
               </button>
             </div>
           </form>
         </Modal>
       )}
 
-      {deleteId !== null && (
-        <Modal title="Delete Payment" onClose={() => setDeleteId(null)}>
-          <p className="text-sm text-gray-600 mb-6">Delete this payment record?</p>
-          <div className="flex gap-3">
-            <button onClick={() => setDeleteId(null)}
-              className="flex-1 border border-gray-300 text-gray-700 rounded-lg py-2 text-sm hover:bg-gray-50 transition-colors">
-              Cancel
+      {/* Edit Services modal */}
+      {svcModal && (
+        <Modal title={`Services — ${svcModal.tenantName} · ${svcModal.row.period ? fmtPeriod(svcModal.row.period) : ''}`} onClose={() => setSvcModal(null)}>
+          <form onSubmit={handleSvcSave} className="space-y-4">
+            <p className="text-xs text-gray-500">Add or edit service charges for this month. Leave empty lines to remove.</p>
+
+            <div className="space-y-2">
+              {svcLines.map((line, i) => {
+                const svc = services.find(s => s.id === parseInt(line.serviceId));
+                return (
+                  <div key={i} className="flex items-center gap-2">
+                    {/* Service select */}
+                    <select
+                      value={line.serviceId}
+                      onChange={e => updateSvcLine(i, 'serviceId', e.target.value)}
+                      className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    >
+                      <option value="">Select service…</option>
+                      {services.filter(s => s.active).map(s => (
+                        <option key={s.id} value={s.id}>{s.name} ({s.type === 'FIXED' ? `KSh ${Number(s.unitPrice).toLocaleString()}` : `KSh ${Number(s.unitPrice).toLocaleString()}/${s.unitLabel ?? 'unit'}`})</option>
+                      ))}
+                    </select>
+                    {/* Units input (only for PER_UNIT) */}
+                    {svc?.type === 'PER_UNIT' && (
+                      <input
+                        type="number"
+                        value={line.units}
+                        onChange={e => updateSvcLine(i, 'units', e.target.value)}
+                        placeholder={svc.unitLabel ?? 'Units'}
+                        min="0" step="1"
+                        className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                      />
+                    )}
+                    {/* Computed amount */}
+                    <div className="w-28 text-right text-sm font-medium text-gray-700 border border-gray-200 bg-gray-50 rounded-lg px-3 py-2">
+                      {line.amount > 0 ? `KSh ${line.amount.toLocaleString()}` : '—'}
+                    </div>
+                    {/* Remove */}
+                    <button type="button" onClick={() => setSvcLines(prev => prev.filter((_, idx) => idx !== i))}
+                      className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                      </svg>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            <button type="button"
+              onClick={() => setSvcLines(prev => [...prev, { serviceId: '', units: '', amount: 0 }])}
+              className="text-sm text-teal-600 hover:text-teal-800 font-medium flex items-center gap-1"
+            >
+              <span className="text-lg leading-none">+</span> Add service line
             </button>
-            <button onClick={() => handleDelete(deleteId)}
-              className="flex-1 bg-red-600 text-white rounded-lg py-2 text-sm hover:bg-red-700 transition-colors font-medium">
-              Delete
-            </button>
-          </div>
+
+            {/* Total */}
+            {svcLines.some(l => l.amount > 0) && (
+              <div className="bg-gray-50 rounded-lg px-3 py-2.5 space-y-1 text-sm">
+                <div className="flex justify-between text-gray-600">
+                  <span>Rent</span>
+                  <span>KSh {svcModal.row.rentAmount.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-gray-600">
+                  <span>Services total</span>
+                  <span>KSh {svcLines.reduce((s, l) => s + l.amount, 0).toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between font-semibold text-gray-900 border-t border-gray-200 pt-1.5">
+                  <span>New Total Due</span>
+                  <span>KSh {(svcModal.row.rentAmount + svcLines.reduce((s, l) => s + l.amount, 0)).toLocaleString()}</span>
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-1">
+              <button type="button" onClick={() => setSvcModal(null)}
+                className="flex-1 border border-gray-300 text-gray-700 rounded-lg py-2 text-sm hover:bg-gray-50 transition-colors">
+                Cancel
+              </button>
+              <button type="submit" disabled={svcSubmitting}
+                className="flex-1 bg-teal-600 text-white rounded-lg py-2 text-sm hover:bg-teal-700 disabled:opacity-50 transition-colors font-medium">
+                {svcSubmitting ? 'Saving…' : 'Save Services'}
+              </button>
+            </div>
+          </form>
         </Modal>
       )}
 
-      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
+      {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   );
 }

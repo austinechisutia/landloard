@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma';
+import { PaymentStatus } from '@prisma/client';
 
 function periodStart(year: number, month: number) {
   return new Date(Date.UTC(year, month, 1));
@@ -22,105 +23,50 @@ export async function GET(
 
     const payments = await prisma.payment.findMany({
       where: { tenantId },
+      include: { services: { include: { service: true } } },
       orderBy: [{ paymentType: 'asc' }, { period: 'asc' }, { dueDate: 'asc' }],
     });
 
-    const deposit = payments.find(p => p.paymentType === 'DEPOSIT') ?? null;
-    const rentPayments = payments.filter(p => p.paymentType === 'RENT');
+    const entries = payments.map(p => {
+      const servicesTotal = p.services.reduce((s, c) => s + Number(c.amount), 0);
+      return {
+        id:           p.id,
+        paymentType:  p.paymentType,
+        period:       p.period
+          ? `${p.period.getUTCFullYear()}-${String(p.period.getUTCMonth() + 1).padStart(2, '0')}`
+          : null,
+        dueDate:      p.dueDate.toISOString(),
+        paymentDate:  p.paymentDate?.toISOString() ?? null,
+        rentAmount:   Number(p.rentAmount),
+        servicesTotal,
+        services:     p.services.map(s => ({
+          name:   s.service.name,
+          units:  s.units !== null ? Number(s.units) : null,
+          amount: Number(s.amount),
+        })),
+        amountDue:  Number(p.amountDue),
+        amountPaid: Number(p.amountPaid),
+        balance:    Number(p.balance),
+        status:     p.status,
+      };
+    });
 
-    // Build monthly entries from move-in month to current month
-    const moveIn = new Date(tenant.moveInDate);
-    const now    = new Date();
-
-    let cur = periodStart(moveIn.getFullYear(), moveIn.getMonth());
-    const end = periodStart(now.getFullYear(), now.getMonth());
-
-    const months: {
-      period:          string;
-      periodDate:      string;
-      dueDate:         string;
-      amountDue:       number;
-      amountPaid:      number;
-      status:          string;
-      paymentId:       number | null;
-      paymentDate:     string | null;
-      effectiveDue:    number;
-      effectiveBalance:number;
-      effectiveStatus: string;
-    }[] = [];
-
-    while (cur <= end) {
-      const yr = cur.getUTCFullYear();
-      const mo = cur.getUTCMonth();
-
-      const payment = rentPayments.find(p => {
-        if (!p.period) return false;
-        const pd = new Date(p.period);
-        return pd.getUTCFullYear() === yr && pd.getUTCMonth() === mo;
-      });
-
-      months.push({
-        period:           `${yr}-${String(mo + 1).padStart(2, '0')}`,
-        periodDate:       cur.toISOString(),
-        dueDate:          new Date(Date.UTC(yr, mo, 10)).toISOString(),
-        amountDue:        rentAmount,
-        amountPaid:       payment ? Number(payment.amountPaid) : 0,
-        status:           payment ? payment.status : 'PENDING',
-        paymentId:        payment?.id ?? null,
-        paymentDate:      payment?.paymentDate?.toISOString() ?? null,
-        effectiveDue:     rentAmount,
-        effectiveBalance: rentAmount,
-        effectiveStatus:  'PENDING',
-      });
-
-      cur = periodStart(yr, mo + 1);
-    }
-
-    // Compute carry-over chain
-    let carryOver = 0;
-    for (const m of months) {
-      const totalAvailable = m.amountPaid + carryOver;
-      if (totalAvailable >= m.amountDue) {
-        m.effectiveDue     = Math.max(0, m.amountDue - carryOver);
-        m.effectiveBalance = 0;
-        m.effectiveStatus  = 'PAID';
-        carryOver          = totalAvailable - m.amountDue;
-      } else {
-        m.effectiveDue     = Math.max(0, m.amountDue - carryOver);
-        m.effectiveBalance = m.effectiveDue - m.amountPaid;
-        m.effectiveStatus  = m.amountPaid > 0 ? 'PARTIAL' : 'PENDING';
-        carryOver          = 0;
-      }
-    }
-
-    const totalRentDue  = months.length * rentAmount;
-    const totalRentPaid = months.reduce((s, m) => s + m.amountPaid, 0);
-    const depositDue    = deposit ? Number(deposit.amountDue)  : rentAmount;
-    const depositPaid   = deposit ? Number(deposit.amountPaid) : 0;
+    const totalDue     = entries.reduce((s, e) => s + e.amountDue, 0);
+    const totalPaid    = entries.reduce((s, e) => s + e.amountPaid, 0);
+    const totalBalance = entries.reduce((s, e) => s + e.balance, 0);
 
     return Response.json({
       tenant: {
-        id:         tenant.id,
-        name:       tenant.name,
+        id:           tenant.id,
+        name:         tenant.name,
         rentAmount,
-        moveInDate: tenant.moveInDate,
-        unit:       tenant.unit.name,
+        depositMonths: tenant.unit.depositMonths,
+        depositAmount: rentAmount * tenant.unit.depositMonths,
+        moveInDate:   tenant.moveInDate,
+        unit:         tenant.unit.name,
       },
-      deposit: {
-        id:          deposit?.id ?? null,
-        amountDue:   depositDue,
-        amountPaid:  depositPaid,
-        balance:     depositDue - depositPaid,
-        status:      deposit?.status ?? 'PENDING',
-        paymentDate: deposit?.paymentDate?.toISOString() ?? null,
-      },
-      months,
-      carryOver,
-      summary: {
-        totalDue:  depositDue + totalRentDue,
-        totalPaid: depositPaid + totalRentPaid,
-        totalBalance: (depositDue - depositPaid) + months.reduce((s, m) => s + m.effectiveBalance, 0),
-      },
+      entries,
+      summary: { totalDue, totalPaid, totalBalance },
     });
   } catch (err) {
     console.error(err);
@@ -135,7 +81,8 @@ export async function POST(
   try {
     const { id } = await params;
     const tenantId = parseInt(id);
-    const { target, amount, paymentDate } = await request.json();
+    const { target, amount, paymentDate, customAmount } = await request.json();
+    const custom = Number(customAmount) || 0;
     // target: 'DEPOSIT' | 'YYYY-MM'
 
     const tenant = await prisma.tenant.findUnique({
@@ -160,9 +107,9 @@ export async function POST(
       if (existing) {
         const prevPaid   = Number(existing.amountPaid);
         const due        = Number(existing.amountDue);
-        const newPaid    = Math.min(due, prevPaid + paid);
+        const newPaid    = prevPaid + paid;
         const newBalance = due - newPaid;
-        const newStatus  = newBalance <= 0 ? 'PAID' : 'PENDING';
+        const newStatus: PaymentStatus = newBalance <= 0 ? 'PAID' : 'PENDING';
         const updated    = await prisma.payment.update({
           where: { id: existing.id },
           data: {
@@ -174,7 +121,6 @@ export async function POST(
         });
         return Response.json(updated);
       } else {
-        // Create deposit record
         const newBalance = rentAmount - paid;
         const newStatus  = newBalance <= 0 ? 'PAID' : 'PENDING';
         const created    = await prisma.payment.create({
@@ -184,8 +130,8 @@ export async function POST(
             paymentType: 'DEPOSIT',
             rentAmount:  0,
             amountDue:   rentAmount,
-            amountPaid:  Math.min(rentAmount, paid),
-            balance:     Math.max(0, newBalance),
+            amountPaid:  paid,
+            balance:     newBalance,
             status:      newStatus,
             dueDate:     new Date(tenant.moveInDate),
             paymentDate: newStatus === 'PAID' ? paidAt : null,
@@ -195,58 +141,96 @@ export async function POST(
       }
     }
 
-    // RENT for a specific period (YYYY-MM)
+    // RENT — distribute across all pending months oldest-first up to and including target
     const [yearStr, monthStr] = (target as string).split('-');
     const year  = parseInt(yearStr);
     const month = parseInt(monthStr) - 1; // 0-based
 
-    const periodDate = periodStart(year, month);
-    const dueDateVal = new Date(Date.UTC(year, month, 10));
+    const targetPeriodDate = periodStart(year, month);
 
-    const existing = await prisma.payment.findFirst({
+    const existingRentPayments = await prisma.payment.findMany({
       where: {
         tenantId,
         paymentType: 'RENT',
-        period: periodDate,
+        period: { lte: targetPeriodDate },
       },
+      orderBy: { period: 'asc' },
     });
 
-    if (existing) {
-      const prevPaid   = Number(existing.amountPaid);
-      const due        = Number(existing.amountDue);
-      const newPaid    = prevPaid + paid;   // can overpay — carry-over is computed in GET
-      const newBalance = Math.max(0, due - newPaid);
-      const newStatus  = newPaid >= due ? 'PAID' : 'PENDING';
-      const updated    = await prisma.payment.update({
-        where: { id: existing.id },
-        data: {
-          amountPaid:  newPaid,
-          balance:     newBalance,
-          status:      newStatus,
-          paymentDate: paidAt,
-        },
-      });
-      return Response.json(updated);
-    } else {
-      const newBalance = Math.max(0, rentAmount - paid);
-      const newStatus  = paid >= rentAmount ? 'PAID' : 'PENDING';
-      const created    = await prisma.payment.create({
-        data: {
-          tenantId,
-          unitId:      tenant.unitId ?? 0,
-          paymentType: 'RENT',
-          period:      periodDate,
-          rentAmount,
-          amountDue:   rentAmount,
-          amountPaid:  paid,
-          balance:     newBalance,
-          status:      newStatus,
-          dueDate:     dueDateVal,
-          paymentDate: paidAt,
-        },
-      });
-      return Response.json(created, { status: 201 });
+    const paymentByPeriod = new Map<string, typeof existingRentPayments[0]>();
+    for (const p of existingRentPayments) {
+      if (p.period) {
+        const pd  = new Date(p.period);
+        const key = `${pd.getUTCFullYear()}-${String(pd.getUTCMonth() + 1).padStart(2, '0')}`;
+        paymentByPeriod.set(key, p);
+      }
     }
+
+    const moveIn = new Date(tenant.moveInDate);
+    const periods: string[] = [];
+    let cur = periodStart(moveIn.getUTCFullYear(), moveIn.getUTCMonth());
+    while (cur <= targetPeriodDate) {
+      const yr = cur.getUTCFullYear();
+      const mo = cur.getUTCMonth();
+      periods.push(`${yr}-${String(mo + 1).padStart(2, '0')}`);
+      cur = periodStart(yr, mo + 1);
+    }
+
+    let remaining = paid;
+    const targetKey = `${year}-${String(month + 1).padStart(2, '0')}`;
+
+    await prisma.$transaction(async (tx) => {
+      for (const periodKey of periods) {
+        if (remaining <= 0) break;
+
+        const [pYr, pMo] = periodKey.split('-').map(Number);
+        const pPeriodDate = periodStart(pYr, pMo - 1);
+        const pDueDate    = new Date(Date.UTC(pYr, pMo - 1, 10));
+        const isTarget    = periodKey === targetKey;
+
+        const pmt         = paymentByPeriod.get(periodKey);
+        const currentPaid = pmt ? Number(pmt.amountPaid) : 0;
+        const baseAmountDue = pmt ? Number(pmt.amountDue) : rentAmount;
+        const amountDue   = baseAmountDue + (isTarget ? custom : 0);
+        const outstanding = amountDue - currentPaid;
+
+        if (outstanding <= 0 && !isTarget) continue;
+
+        const toApply = isTarget ? remaining : Math.min(remaining, outstanding);
+        if (toApply <= 0) continue;
+
+        const newPaid    = currentPaid + toApply;
+        const newBalance = isTarget ? amountDue - newPaid : Math.max(0, amountDue - newPaid);
+        const newStatus: PaymentStatus  = newPaid >= amountDue ? 'PAID' : 'PENDING';
+
+        if (pmt) {
+          await tx.payment.update({
+            where: { id: pmt.id },
+            data: { amountPaid: newPaid, balance: newBalance, status: newStatus, paymentDate: paidAt },
+          });
+        } else {
+          await tx.payment.create({
+            data: {
+              tenantId,
+              unitId:      tenant.unitId,
+              paymentType: 'RENT',
+              period:      pPeriodDate,
+              rentAmount,
+              amountDue,
+              amountPaid:  toApply,
+              balance:     newBalance,
+              status:      newStatus,
+              dueDate:     pDueDate,
+              paymentDate: paidAt,
+            },
+          });
+        }
+
+        remaining -= toApply;
+      }
+    });
+
+    return Response.json({ ok: true });
   } catch (err) {
     console.error(err);
     return Response.json({ error: 'Failed to record payment' }, { status: 500 });

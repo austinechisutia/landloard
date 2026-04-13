@@ -23,16 +23,22 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { name, houseTypeId } = await request.json();
+    const { name, houseTypeId, depositMonths } = await request.json();
     if (!name || !houseTypeId) {
       return Response.json({ error: 'name and houseTypeId are required' }, { status: 400 });
     }
     const unit = await prisma.unit.create({
-      data: { name, houseTypeId: parseInt(houseTypeId) },
+      data: {
+        name,
+        houseTypeId:  parseInt(houseTypeId),
+        depositMonths: depositMonths ? parseInt(depositMonths) : 1,
+      },
       include: { houseType: true },
     });
     return Response.json(unit, { status: 201 });
-  } catch {
-    return Response.json({ error: 'Failed to create unit' }, { status: 500 });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[POST /units]', msg);
+    return Response.json({ error: 'Failed to create unit', detail: msg }, { status: 500 });
   }
 }

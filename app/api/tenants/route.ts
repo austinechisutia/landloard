@@ -26,7 +26,11 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const { name, phone, houseTypeId, unitId, moveInDate } = await request.json();
+    const {
+      name, phone, houseTypeId, unitId, moveInDate,
+      idNumber, country, emergencyContact, emergencyPhone,
+      householdCount, householdMembers,
+    } = await request.json();
     if (!name || !phone || !houseTypeId || !unitId || !moveInDate) {
       return Response.json({ error: 'All fields are required' }, { status: 400 });
     }
@@ -34,17 +38,27 @@ export async function POST(request: Request) {
     const houseType = await prisma.houseType.findUnique({ where: { id: parseInt(houseTypeId) } });
     if (!houseType) return Response.json({ error: 'House type not found' }, { status: 400 });
 
-    const rentAmount = Number(houseType.rentAmount);
-    const moveIn     = new Date(moveInDate);
+    const unit = await prisma.unit.findUnique({ where: { id: parseInt(unitId) } });
+    if (!unit) return Response.json({ error: 'Unit not found' }, { status: 400 });
+
+    const rentAmount    = Number(houseType.rentAmount);
+    const depositAmount = rentAmount * unit.depositMonths;
+    const moveIn        = new Date(moveInDate);
 
     const tenant = await prisma.$transaction(async (tx) => {
       const created = await tx.tenant.create({
         data: {
           name,
           phone,
-          houseTypeId: parseInt(houseTypeId),
-          unitId:      parseInt(unitId),
-          moveInDate:  moveIn,
+          houseTypeId:      parseInt(houseTypeId),
+          unitId:           parseInt(unitId),
+          moveInDate:       moveIn,
+          idNumber:         idNumber        || null,
+          country:          country         || null,
+          emergencyContact: emergencyContact || null,
+          emergencyPhone:   emergencyPhone  || null,
+          householdCount:   householdCount  ? parseInt(householdCount) : 1,
+          householdMembers: householdMembers || null,
         },
         include: { houseType: true, unit: true },
       });
@@ -54,16 +68,16 @@ export async function POST(request: Request) {
         data:  { status: 'OCCUPIED' },
       });
 
-      // Auto-create deposit record
+      // Auto-create deposit record using the unit's depositMonths setting
       await tx.payment.create({
         data: {
           tenantId:    created.id,
           unitId:      parseInt(unitId),
           paymentType: 'DEPOSIT',
           rentAmount:  0,
-          amountDue:   rentAmount,
+          amountDue:   depositAmount,
           amountPaid:  0,
-          balance:     rentAmount,
+          balance:     depositAmount,
           status:      'PENDING',
           dueDate:     moveIn,
         },

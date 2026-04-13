@@ -14,6 +14,7 @@ interface Unit {
   id: number;
   name: string;
   status: 'VACANT' | 'OCCUPIED';
+  depositMonths: number;
   houseTypeId: number;
 }
 
@@ -24,50 +25,57 @@ interface Tenant {
   houseTypeId: number;
   unitId: number;
   moveInDate: string;
+  idNumber: string | null;
+  country: string | null;
+  emergencyContact: string | null;
+  emergencyPhone: string | null;
+  householdCount: number;
+  householdMembers: string | null;
   houseType: HouseType;
   unit: Unit;
-  payments: {
-    id: number;
-    status: 'PAID' | 'PENDING';
-    dueDate: string;
-    rentAmount: number;
-    amountDue: number;
-    amountPaid: number;
-    paymentDate: string | null;
-    services: { amount: number; service: { name: string } }[];
-  }[];
 }
 
-interface MonthEntry {
-  period: string;
-  periodDate: string;
-  dueDate: string;
-  amountDue: number;
-  amountPaid: number;
-  status: string;
-  paymentId: number | null;
-  paymentDate: string | null;
-  effectiveDue: number;
-  effectiveBalance: number;
-  effectiveStatus: string;
+const blankForm = {
+  name: '', phone: '', houseTypeId: '', unitId: '', moveInDate: '',
+  idNumber: '', country: '', emergencyContact: '', emergencyPhone: '',
+  householdCount: '1', householdMembers: '',
+};
+
+interface BillingRow {
+  type:          'DEPOSIT' | 'RENT';
+  period:        string | null;
+  monthIndex:    number;
+  dueDate:       string;
+  rentAmount:    number;
+  servicesTotal: number;
+  services:      { name: string; units: number | null; amount: number }[];
+  amountDue:     number;
+  amountPaid:    number;
+  balance:       number;
+  status:        string;
+  paymentId:     number | null;
+  paymentDate:   string | null;
 }
 
-interface Ledger {
-  tenant: { id: number; name: string; rentAmount: number; moveInDate: string; unit: string };
-  deposit: {
-    id: number | null;
-    amountDue: number;
-    amountPaid: number;
-    balance: number;
-    status: string;
-    paymentDate: string | null;
-  };
-  months: MonthEntry[];
-  carryOver: number;
-  summary: { totalDue: number; totalPaid: number; totalBalance: number };
+interface TenantSchedule {
+  id:            number;
+  name:          string;
+  unitName:      string;
+  moveInDate:    string;
+  rentAmount:    number;
+  depositMonths: number;
+  depositAmount: number;
+  rows:          BillingRow[];
+  totalDue:      number;
+  totalPaid:     number;
+  totalBalance:  number;
 }
 
-const blank = { name: '', phone: '', houseTypeId: '', unitId: '', moveInDate: '' };
+function fmtPeriod(period: string): string {
+  const [yr, mo] = period.split('-');
+  return new Date(parseInt(yr), parseInt(mo) - 1, 1)
+    .toLocaleString('default', { month: 'short', year: 'numeric' });
+}
 
 export default function TenantsPage() {
   const [tenants,      setTenants]      = useState<Tenant[]>([]);
@@ -76,20 +84,15 @@ export default function TenantsPage() {
   const [loading,      setLoading]      = useState(true);
   const [showModal,    setShowModal]    = useState(false);
   const [editing,      setEditing]      = useState<Tenant | null>(null);
-  const [form,         setForm]         = useState(blank);
+  const [form,         setForm]         = useState(blankForm);
   const [loadingUnits, setLoadingUnits] = useState(false);
   const [submitting,   setSubmitting]   = useState(false);
-  const [deleteId,     setDeleteId]     = useState<number | null>(null);
-  const [toast,        setToast]        = useState<string | null>(null);
-
-  // Ledger state
-  const [ledgerTenant,   setLedgerTenant]   = useState<Tenant | null>(null);
-  const [ledger,         setLedger]         = useState<Ledger | null>(null);
-  const [ledgerLoading,  setLedgerLoading]  = useState(false);
-  const [payTarget,      setPayTarget]      = useState<string>('');
-  const [payAmount,      setPayAmount]      = useState('');
-  const [payDate,        setPayDate]        = useState(() => new Date().toISOString().split('T')[0]);
-  const [paySubmitting,  setPaySubmitting]  = useState(false);
+  const [deleteId,       setDeleteId]       = useState<number | null>(null);
+  const [infoTenant,     setInfoTenant]     = useState<Tenant | null>(null);
+  const [paymentTenant,  setPaymentTenant]  = useState<Tenant | null>(null);
+  const [paymentSchedule, setPaymentSchedule] = useState<TenantSchedule | null>(null);
+  const [paymentLoading, setPaymentLoading] = useState(false);
+  const [toast,          setToast]          = useState<{ msg: string; type: 'error' | 'success' } | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -127,7 +130,7 @@ export default function TenantsPage() {
 
   const openAdd = () => {
     setEditing(null);
-    setForm(blank);
+    setForm(blankForm);
     setUnits([]);
     setShowModal(true);
   };
@@ -135,11 +138,17 @@ export default function TenantsPage() {
   const openEdit = async (t: Tenant) => {
     setEditing(t);
     setForm({
-      name:        t.name,
-      phone:       t.phone,
-      houseTypeId: String(t.houseTypeId),
-      unitId:      String(t.unitId),
-      moveInDate:  t.moveInDate.split('T')[0],
+      name:             t.name,
+      phone:            t.phone,
+      houseTypeId:      String(t.houseTypeId),
+      unitId:           String(t.unitId),
+      moveInDate:       t.moveInDate.split('T')[0],
+      idNumber:         t.idNumber        ?? '',
+      country:          t.country         ?? '',
+      emergencyContact: t.emergencyContact ?? '',
+      emergencyPhone:   t.emergencyPhone  ?? '',
+      householdCount:   String(t.householdCount ?? 1),
+      householdMembers: t.householdMembers ?? '',
     });
     await fetchUnits(String(t.houseTypeId), t.unitId);
     setShowModal(true);
@@ -150,18 +159,25 @@ export default function TenantsPage() {
     setSubmitting(true);
     try {
       const payload = {
-        name:        form.name,
-        phone:       form.phone,
-        houseTypeId: parseInt(form.houseTypeId),
-        unitId:      parseInt(form.unitId),
-        moveInDate:  form.moveInDate,
+        name:             form.name,
+        phone:            form.phone,
+        houseTypeId:      parseInt(form.houseTypeId),
+        unitId:           parseInt(form.unitId),
+        moveInDate:       form.moveInDate,
+        idNumber:         form.idNumber        || null,
+        country:          form.country         || null,
+        emergencyContact: form.emergencyContact || null,
+        emergencyPhone:   form.emergencyPhone  || null,
+        householdCount:   parseInt(form.householdCount) || 1,
+        householdMembers: form.householdMembers || null,
       };
       if (editing) await api.patch(`/tenants/${editing.id}`, payload);
       else         await api.post('/tenants', payload);
       setShowModal(false);
       load();
+      setToast({ msg: editing ? 'Tenant updated successfully' : 'Tenant added successfully', type: 'success' });
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error saving tenant');
+      setToast({ msg: err instanceof Error ? err.message : 'Error saving tenant', type: 'error' });
     } finally {
       setSubmitting(false);
     }
@@ -172,68 +188,29 @@ export default function TenantsPage() {
       await api.delete(`/tenants/${id}`);
       setDeleteId(null);
       load();
+      setToast({ msg: 'Tenant removed', type: 'error' });
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error deleting tenant');
+      setToast({ msg: err instanceof Error ? err.message : 'Error deleting tenant', type: 'error' });
     }
   };
 
-  const openLedger = async (t: Tenant) => {
-    setLedgerTenant(t);
-    setLedger(null);
-    setPayTarget('');
-    setPayAmount('');
-    setLedgerLoading(true);
+  const openPaymentStatus = async (t: Tenant) => {
+    setPaymentTenant(t);
+    setPaymentSchedule(null);
+    setPaymentLoading(true);
     try {
-      const data = await api.get<Ledger>(`/tenants/${t.id}/ledger`);
-      setLedger(data);
+      const data = await api.get<TenantSchedule[]>(`/payments/schedule?tenantId=${t.id}`);
+      setPaymentSchedule(data[0] ?? null);
     } catch {
-      setToast('Failed to load ledger');
+      setToast({ msg: 'Failed to load payment status', type: 'error' });
     } finally {
-      setLedgerLoading(false);
+      setPaymentLoading(false);
     }
   };
 
-  const closeLedger = () => {
-    setLedgerTenant(null);
-    setLedger(null);
-  };
-
-  const recordPayment = async () => {
-    if (!ledgerTenant || !payTarget || !payAmount) return;
-    setPaySubmitting(true);
-    try {
-      await api.post(`/tenants/${ledgerTenant.id}/ledger`, {
-        target:      payTarget,
-        amount:      parseFloat(payAmount),
-        paymentDate: payDate,
-      });
-      setPayAmount('');
-      setPayTarget('');
-      // Reload ledger
-      const data = await api.get<Ledger>(`/tenants/${ledgerTenant.id}/ledger`);
-      setLedger(data);
-      setToast('Payment recorded');
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to record payment');
-    } finally {
-      setPaySubmitting(false);
-    }
-  };
-
-  const statusBadge = (status: string) => {
-    const map: Record<string, string> = {
-      PAID:    'bg-green-100 text-green-700',
-      PARTIAL: 'bg-amber-100 text-amber-700',
-      PENDING: 'bg-red-100 text-red-700',
-    };
-    return `inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${map[status] ?? 'bg-gray-100 text-gray-500'}`;
-  };
-
-  const fmtMonth = (period: string) => {
-    const [yr, mo] = period.split('-');
-    const date = new Date(parseInt(yr), parseInt(mo) - 1, 1);
-    return date.toLocaleString('default', { month: 'short', year: 'numeric' });
-  };
+  // Parse household members from stored string (newline or comma separated)
+  const parseMembers = (raw: string | null): string[] =>
+    raw ? raw.split(/[\n,]+/).map(s => s.trim()).filter(Boolean) : [];
 
   return (
     <div className="space-y-6">
@@ -263,73 +240,63 @@ export default function TenantsPage() {
                   <th className="text-left px-6 py-3 text-gray-500 font-medium">Name</th>
                   <th className="text-left px-6 py-3 text-gray-500 font-medium">Phone</th>
                   <th className="text-left px-6 py-3 text-gray-500 font-medium">Unit</th>
-                  <th className="text-right px-6 py-3 text-gray-500 font-medium">Rent (KSh)</th>
-                  <th className="text-left px-6 py-3 text-gray-500 font-medium">Services</th>
-                  <th className="text-right px-6 py-3 text-gray-500 font-medium">Total</th>
+                  <th className="text-left px-6 py-3 text-gray-500 font-medium">House Type</th>
                   <th className="text-left px-6 py-3 text-gray-500 font-medium">Move-in</th>
                   <th className="text-right px-6 py-3 text-gray-500 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {tenants.map(t => {
-                  const p        = t.payments[0] ?? null;
-                  const rent     = p ? Number(p.rentAmount) : Number(t.houseType.rentAmount);
-                  const svcTotal = p ? p.services.reduce((s, c) => s + Number(c.amount), 0) : 0;
-                  const total    = p ? Number(p.amountDue) : rent;
-                  return (
-                    <tr key={t.id} className="hover:bg-gray-50 align-top">
-                      <td className="px-6 py-3.5">
-                        <div className="font-medium text-gray-900">{t.name}</div>
-                        <div className="text-xs text-gray-400">{t.houseType.name}</div>
-                      </td>
-                      <td className="px-6 py-3.5 text-gray-600">{t.phone}</td>
-                      <td className="px-6 py-3.5 font-semibold text-gray-900">{t.unit.name}</td>
-                      <td className="px-6 py-3.5 text-right text-gray-700">{rent.toLocaleString()}</td>
-                      <td className="px-6 py-3.5">
-                        {!p || p.services.length === 0 ? (
-                          <span className="text-gray-400 text-xs">—</span>
-                        ) : (
-                          <div className="space-y-0.5">
-                            {p.services.map((c, i) => (
-                              <div key={i} className="flex items-center gap-1.5 text-xs">
-                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0" />
-                                <span className="text-gray-600">{c.service.name}</span>
-                                <span className="text-gray-500 ml-auto pl-3 font-medium">
-                                  +{Number(c.amount).toLocaleString()}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-6 py-3.5 text-right">
-                        <div className="font-semibold text-gray-900">{total.toLocaleString()}</div>
-                        {svcTotal > 0 && (
-                          <div className="text-xs text-gray-400 mt-0.5">
-                            {rent.toLocaleString()} + {svcTotal.toLocaleString()}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-6 py-3.5 text-gray-600">
-                        {new Date(t.moveInDate).toLocaleDateString()}
-                      </td>
-                      <td className="px-6 py-3.5 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          {/* Ledger / payment tracking */}
-                          <button onClick={() => openLedger(t)} title="View Ledger" className="p-1.5 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 rounded-lg transition-colors">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
-                          </button>
-                          <button onClick={() => openEdit(t)} title="Edit" className="p-1.5 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-lg transition-colors">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                          </button>
-                          <button onClick={() => setDeleteId(t.id)} title="Remove" className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {tenants.map(t => (
+                  <tr key={t.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-3.5">
+                      <div className="font-medium text-gray-900">{t.name}</div>
+                      {t.idNumber && (
+                        <div className="text-xs text-gray-400">ID: {t.idNumber}</div>
+                      )}
+                    </td>
+                    <td className="px-6 py-3.5 text-gray-600">{t.phone}</td>
+                    <td className="px-6 py-3.5 font-semibold text-gray-900">{t.unit.name}</td>
+                    <td className="px-6 py-3.5 text-gray-600">{t.houseType.name}</td>
+                    <td className="px-6 py-3.5 text-gray-600">
+                      {new Date(t.moveInDate).toLocaleDateString()}
+                    </td>
+                    <td className="px-6 py-3.5 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        {/* Info */}
+                        <button
+                          onClick={() => setInfoTenant(t)}
+                          title="Client Details"
+                          className="p-1.5 text-sky-500 hover:text-sky-700 hover:bg-sky-50 rounded-lg transition-colors"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="12" cy="12" r="10"/>
+                            <line x1="12" y1="16" x2="12" y2="12"/>
+                            <line x1="12" y1="8" x2="12.01" y2="8"/>
+                          </svg>
+                        </button>
+                        {/* Payment Status */}
+                        <button
+                          onClick={() => openPaymentStatus(t)}
+                          title="Payment Status"
+                          className="p-1.5 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 rounded-lg transition-colors"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="1" y="4" width="22" height="16" rx="2" ry="2"/>
+                            <line x1="1" y1="10" x2="23" y2="10"/>
+                          </svg>
+                        </button>
+                        {/* Edit */}
+                        <button onClick={() => openEdit(t)} title="Edit" className="p-1.5 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-lg transition-colors">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                        </button>
+                        {/* Delete */}
+                        <button onClick={() => setDeleteId(t.id)} title="Remove" className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -340,82 +307,129 @@ export default function TenantsPage() {
       {showModal && (
         <Modal title={editing ? 'Edit Tenant' : 'Add Tenant'} onClose={() => setShowModal(false)}>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
-              <input
-                type="text"
-                value={form.name}
-                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                placeholder="e.g. John Mwangi"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                required
-              />
+
+            {/* Basic info */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                <input type="text" value={form.name}
+                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                  placeholder="e.g. John Mwangi"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  required />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                <input type="tel" value={form.phone}
+                  onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+                  placeholder="e.g. 0712345678"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  required />
+              </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
-              <input
-                type="tel"
-                value={form.phone}
-                onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
-                placeholder="e.g. 0712345678"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                required
-              />
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">ID Number</label>
+                <input type="text" value={form.idNumber}
+                  onChange={e => setForm(f => ({ ...f, idNumber: e.target.value }))}
+                  placeholder="National ID / Passport"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Country</label>
+                <input type="text" value={form.country}
+                  onChange={e => setForm(f => ({ ...f, country: e.target.value }))}
+                  placeholder="e.g. Kenya"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">House Type</label>
-              <select
-                value={form.houseTypeId}
-                onChange={e => onTypeChange(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                required
-              >
-                <option value="">Select house type…</option>
-                {types.map(t => (
-                  <option key={t.id} value={t.id}>{t.name} — KSh {Number(t.rentAmount).toLocaleString()}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {editing ? 'Unit' : 'Available Unit'}
-              </label>
-              <select
-                value={form.unitId}
-                onChange={e => setForm(f => ({ ...f, unitId: e.target.value }))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50"
-                disabled={!form.houseTypeId || loadingUnits}
-                required
-              >
-                <option value="">
-                  {!form.houseTypeId
-                    ? 'Select a house type first…'
-                    : loadingUnits
-                    ? 'Loading units…'
-                    : units.length === 0
-                    ? 'No vacant units available'
-                    : 'Select a unit…'}
-                </option>
-                {units.map(u => (
-                  <option key={u.id} value={u.id}>
-                    {u.name}{editing && u.id === editing.unitId ? ' (current)' : ''}
+
+            {/* House */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">House Type</label>
+                <select value={form.houseTypeId} onChange={e => onTypeChange(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  required>
+                  <option value="">Select house type…</option>
+                  {types.map(t => (
+                    <option key={t.id} value={t.id}>{t.name} — KSh {Number(t.rentAmount).toLocaleString()}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {editing ? 'Unit' : 'Available Unit'}
+                </label>
+                <select value={form.unitId}
+                  onChange={e => setForm(f => ({ ...f, unitId: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50"
+                  disabled={!form.houseTypeId || loadingUnits}
+                  required>
+                  <option value="">
+                    {!form.houseTypeId ? 'Select a house type first…'
+                      : loadingUnits ? 'Loading units…'
+                      : units.length === 0 ? 'No vacant units available'
+                      : 'Select a unit…'}
                   </option>
-                ))}
-              </select>
-              {form.houseTypeId && !loadingUnits && units.length === 0 && (
-                <p className="text-xs text-amber-600 mt-1">No vacant units for this type. Add more units first.</p>
-              )}
+                  {units.map(u => (
+                    <option key={u.id} value={u.id}>
+                      {u.name}{editing && u.id === editing.unitId ? ' (current)' : ''}
+                    </option>
+                  ))}
+                </select>
+                {form.houseTypeId && !loadingUnits && units.length === 0 && (
+                  <p className="text-xs text-amber-600 mt-1">No vacant units. Add more units first.</p>
+                )}
+              </div>
             </div>
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Move-in Date</label>
-              <input
-                type="date"
-                value={form.moveInDate}
+              <input type="date" value={form.moveInDate}
                 onChange={e => setForm(f => ({ ...f, moveInDate: e.target.value }))}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                required
-              />
+                required />
             </div>
+
+            {/* Emergency contact */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Emergency Contact Name</label>
+                <input type="text" value={form.emergencyContact}
+                  onChange={e => setForm(f => ({ ...f, emergencyContact: e.target.value }))}
+                  placeholder="e.g. Jane Mwangi"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Emergency Contact Phone</label>
+                <input type="tel" value={form.emergencyPhone}
+                  onChange={e => setForm(f => ({ ...f, emergencyPhone: e.target.value }))}
+                  placeholder="e.g. 0722000000"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              </div>
+            </div>
+
+            {/* Household */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Number of People in Household</label>
+              <input type="number" value={form.householdCount} min="1"
+                onChange={e => setForm(f => ({ ...f, householdCount: e.target.value }))}
+                className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Household Members <span className="font-normal text-gray-400">(names, one per line)</span>
+              </label>
+              <textarea value={form.householdMembers}
+                onChange={e => setForm(f => ({ ...f, householdMembers: e.target.value }))}
+                placeholder={"Alice Mwangi\nBob Mwangi"}
+                rows={3}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none" />
+            </div>
+
             <div className="flex gap-3 pt-1">
               <button type="button" onClick={() => setShowModal(false)}
                 className="flex-1 border border-gray-300 text-gray-700 rounded-lg py-2 text-sm hover:bg-gray-50 transition-colors">
@@ -427,6 +441,242 @@ export default function TenantsPage() {
               </button>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {/* Client details info modal */}
+      {infoTenant && (
+        <Modal title={`Client Details — ${infoTenant.name}`} onClose={() => setInfoTenant(null)}>
+          <div className="space-y-4 text-sm">
+
+            {/* Identity */}
+            <div>
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Identity</h3>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+                <div>
+                  <div className="text-xs text-gray-400">Full Name</div>
+                  <div className="font-medium text-gray-900">{infoTenant.name}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-400">Phone</div>
+                  <div className="text-gray-700">{infoTenant.phone}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-400">ID / Passport Number</div>
+                  <div className="text-gray-700">{infoTenant.idNumber || <span className="text-gray-300">—</span>}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-400">Country</div>
+                  <div className="text-gray-700">{infoTenant.country || <span className="text-gray-300">—</span>}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-gray-100" />
+
+            {/* Residence */}
+            <div>
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Residence</h3>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+                <div>
+                  <div className="text-xs text-gray-400">Unit</div>
+                  <div className="font-semibold text-gray-900">{infoTenant.unit.name}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-400">House Type</div>
+                  <div className="text-gray-700">{infoTenant.houseType.name}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-400">Move-in Date</div>
+                  <div className="text-gray-700">{new Date(infoTenant.moveInDate).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-gray-100" />
+
+            {/* Emergency contact */}
+            <div>
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Emergency Contact</h3>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+                <div>
+                  <div className="text-xs text-gray-400">Name</div>
+                  <div className="text-gray-700">{infoTenant.emergencyContact || <span className="text-gray-300">—</span>}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-400">Phone</div>
+                  <div className="text-gray-700">{infoTenant.emergencyPhone || <span className="text-gray-300">—</span>}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-gray-100" />
+
+            {/* Household */}
+            <div>
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Household</h3>
+              <div className="mb-2">
+                <div className="text-xs text-gray-400">Number of People</div>
+                <div className="text-gray-700 font-medium">{infoTenant.householdCount}</div>
+              </div>
+              {parseMembers(infoTenant.householdMembers).length > 0 ? (
+                <div>
+                  <div className="text-xs text-gray-400 mb-1">Members</div>
+                  <ul className="space-y-1">
+                    {parseMembers(infoTenant.householdMembers).map((m, i) => (
+                      <li key={i} className="flex items-center gap-2 text-gray-700">
+                        <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-xs flex items-center justify-center font-medium flex-shrink-0">
+                          {i + 1}
+                        </span>
+                        {m}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <div className="text-xs text-gray-300">No members listed.</div>
+              )}
+            </div>
+
+            <div className="pt-1">
+              <button
+                onClick={() => { setInfoTenant(null); openEdit(infoTenant); }}
+                className="w-full border border-gray-300 text-gray-700 rounded-lg py-2 text-sm hover:bg-gray-50 transition-colors"
+              >
+                Edit Details
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Payment Status modal */}
+      {paymentTenant && (
+        <Modal
+          title={`Payment Status — ${paymentTenant.name}`}
+          onClose={() => { setPaymentTenant(null); setPaymentSchedule(null); }}
+          size="lg"
+        >
+          {paymentLoading ? (
+            <div className="py-10 text-center text-sm text-gray-400">Loading…</div>
+          ) : !paymentSchedule ? (
+            <div className="py-10 text-center text-sm text-gray-400">No data available.</div>
+          ) : (
+            <div className="space-y-5">
+              {/* Tenant meta */}
+              <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-gray-600">
+                <span><span className="text-gray-400">Unit:</span> <span className="font-medium text-gray-900">{paymentSchedule.unitName}</span></span>
+                <span><span className="text-gray-400">Rent:</span> <span className="font-medium text-gray-900">KSh {paymentSchedule.rentAmount.toLocaleString()}/mo</span></span>
+                <span><span className="text-gray-400">Move-in:</span> <span className="font-medium text-gray-900">{new Date(paymentSchedule.moveInDate).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}</span></span>
+                <span><span className="text-gray-400">Deposit:</span> <span className="font-medium text-gray-900">KSh {paymentSchedule.depositAmount.toLocaleString()} ({paymentSchedule.depositMonths} mo)</span></span>
+              </div>
+
+              {/* Summary cards */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="rounded-lg border border-gray-200 px-4 py-3 text-center">
+                  <div className="text-xs text-gray-400 mb-1">Total Charged</div>
+                  <div className="text-lg font-semibold text-gray-900">KSh {paymentSchedule.totalDue.toLocaleString()}</div>
+                </div>
+                <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-center">
+                  <div className="text-xs text-green-600 mb-1">Total Paid</div>
+                  <div className="text-lg font-semibold text-green-700">KSh {paymentSchedule.totalPaid.toLocaleString()}</div>
+                </div>
+                <div className={`rounded-lg border px-4 py-3 text-center ${paymentSchedule.totalBalance > 0 ? 'border-red-200 bg-red-50' : paymentSchedule.totalBalance < 0 ? 'border-blue-200 bg-blue-50' : 'border-green-200 bg-green-50'}`}>
+                  <div className={`text-xs mb-1 ${paymentSchedule.totalBalance > 0 ? 'text-red-500' : paymentSchedule.totalBalance < 0 ? 'text-blue-600' : 'text-green-600'}`}>
+                    {paymentSchedule.totalBalance < 0 ? 'Credit (Overpaid)' : 'Outstanding'}
+                  </div>
+                  <div className={`text-lg font-semibold ${paymentSchedule.totalBalance > 0 ? 'text-red-600' : paymentSchedule.totalBalance < 0 ? 'text-blue-700' : 'text-green-700'}`}>
+                    KSh {Math.abs(paymentSchedule.totalBalance).toLocaleString()}
+                  </div>
+                </div>
+              </div>
+
+              {/* Breakdown table */}
+              <div className="overflow-x-auto rounded-lg border border-gray-200">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      <th className="text-left px-3 py-2.5 text-gray-500 font-medium">Type</th>
+                      <th className="text-left px-3 py-2.5 text-gray-500 font-medium">Period</th>
+                      <th className="text-right px-3 py-2.5 text-gray-500 font-medium">Rent</th>
+                      <th className="text-right px-3 py-2.5 text-gray-500 font-medium">Services</th>
+                      <th className="text-right px-3 py-2.5 text-gray-500 font-medium">Due</th>
+                      <th className="text-right px-3 py-2.5 text-gray-500 font-medium">Paid</th>
+                      <th className="text-right px-3 py-2.5 text-gray-500 font-medium">Balance</th>
+                      <th className="text-left px-3 py-2.5 text-gray-500 font-medium">Due Date</th>
+                      <th className="text-left px-3 py-2.5 text-gray-500 font-medium">Paid On</th>
+                      <th className="text-center px-3 py-2.5 text-gray-500 font-medium">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {paymentSchedule.rows.map((row, i) => {
+                      const displayStatus = row.status === 'PENDING' && row.amountPaid > 0 ? 'PARTIAL' : row.status;
+                      const statusClass = displayStatus === 'PAID'
+                        ? 'bg-green-100 text-green-700'
+                        : displayStatus === 'PARTIAL'
+                        ? 'bg-amber-100 text-amber-700'
+                        : 'bg-red-100 text-red-700';
+                      return (
+                        <tr key={i} className={row.status === 'PENDING' && row.amountPaid === 0 ? 'bg-red-50/30' : 'hover:bg-gray-50'}>
+                          <td className="px-3 py-2">
+                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium ${row.type === 'DEPOSIT' ? 'bg-violet-100 text-violet-700' : 'bg-blue-100 text-blue-700'}`}>
+                              {row.type === 'DEPOSIT' ? 'Deposit' : 'Rent'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-gray-700">
+                            {row.type === 'RENT' && row.period ? (
+                              <span>{fmtPeriod(row.period)} <span className="text-gray-400">#{row.monthIndex}</span></span>
+                            ) : (
+                              <span className="text-gray-500">Move-in</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right text-gray-700">
+                            {row.rentAmount > 0 ? row.rentAmount.toLocaleString() : '—'}
+                          </td>
+                          <td className="px-3 py-2 text-right text-gray-500">
+                            {row.servicesTotal > 0 ? (
+                              <span title={row.services.map(s => `${s.name}: KSh ${s.amount.toLocaleString()}`).join('\n')} className="cursor-help underline decoration-dotted">
+                                {row.servicesTotal.toLocaleString()}
+                              </span>
+                            ) : '—'}
+                          </td>
+                          <td className="px-3 py-2 text-right font-medium text-gray-800">{row.amountDue.toLocaleString()}</td>
+                          <td className="px-3 py-2 text-right text-gray-700">{row.amountPaid > 0 ? row.amountPaid.toLocaleString() : '—'}</td>
+                          <td className={`px-3 py-2 text-right font-medium ${row.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                            {row.balance.toLocaleString()}
+                          </td>
+                          <td className="px-3 py-2 text-gray-500">{new Date(row.dueDate).toLocaleDateString()}</td>
+                          <td className="px-3 py-2 text-gray-500">
+                            {row.paymentDate
+                              ? new Date(row.paymentDate).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+                              : row.amountPaid > 0
+                                ? <span className="text-amber-500">partial</span>
+                                : <span className="text-gray-300">—</span>}
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium ${statusClass}`}>
+                              {displayStatus === 'PARTIAL' ? 'Partial' : displayStatus.charAt(0) + displayStatus.slice(1).toLowerCase()}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot className="border-t-2 border-gray-200 bg-gray-50">
+                    <tr>
+                      <td colSpan={4} className="px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Totals</td>
+                      <td className="px-3 py-2.5 text-right font-semibold text-gray-900">{paymentSchedule.totalDue.toLocaleString()}</td>
+                      <td className="px-3 py-2.5 text-right font-semibold text-green-700">{paymentSchedule.totalPaid.toLocaleString()}</td>
+                      <td className={`px-3 py-2.5 text-right font-semibold ${paymentSchedule.totalBalance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                        {paymentSchedule.totalBalance.toLocaleString()}
+                      </td>
+                      <td colSpan={3} />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
         </Modal>
       )}
 
@@ -447,180 +697,7 @@ export default function TenantsPage() {
         </Modal>
       )}
 
-      {/* Ledger modal */}
-      {ledgerTenant && (
-        <Modal title={`Payment Ledger — ${ledgerTenant.name}`} onClose={closeLedger}>
-          {ledgerLoading ? (
-            <div className="py-12 text-center text-sm text-gray-400">Loading ledger…</div>
-          ) : ledger ? (
-            <div className="space-y-5">
-
-              {/* Summary bar */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="bg-gray-50 rounded-lg p-3 text-center">
-                  <div className="text-xs text-gray-500 mb-1">Total Due</div>
-                  <div className="font-semibold text-gray-900 text-sm">KSh {ledger.summary.totalDue.toLocaleString()}</div>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-3 text-center">
-                  <div className="text-xs text-gray-500 mb-1">Total Paid</div>
-                  <div className="font-semibold text-green-700 text-sm">KSh {ledger.summary.totalPaid.toLocaleString()}</div>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-3 text-center">
-                  <div className="text-xs text-gray-500 mb-1">Outstanding</div>
-                  <div className={`font-semibold text-sm ${ledger.summary.totalBalance > 0 ? 'text-red-600' : 'text-green-700'}`}>
-                    KSh {ledger.summary.totalBalance.toLocaleString()}
-                  </div>
-                </div>
-              </div>
-
-              {/* Deposit row */}
-              <div>
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Deposit</h3>
-                <div className="border border-gray-200 rounded-lg overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="text-left px-3 py-2 text-xs text-gray-500 font-medium">Due</th>
-                        <th className="text-right px-3 py-2 text-xs text-gray-500 font-medium">Amount Due</th>
-                        <th className="text-right px-3 py-2 text-xs text-gray-500 font-medium">Paid</th>
-                        <th className="text-right px-3 py-2 text-xs text-gray-500 font-medium">Balance</th>
-                        <th className="text-center px-3 py-2 text-xs text-gray-500 font-medium">Status</th>
-                        <th className="px-3 py-2" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr className="border-t border-gray-100">
-                        <td className="px-3 py-2.5 text-gray-600">
-                          {new Date(ledger.tenant.moveInDate).toLocaleDateString()}
-                        </td>
-                        <td className="px-3 py-2.5 text-right text-gray-700">{ledger.deposit.amountDue.toLocaleString()}</td>
-                        <td className="px-3 py-2.5 text-right text-gray-700">{ledger.deposit.amountPaid.toLocaleString()}</td>
-                        <td className="px-3 py-2.5 text-right font-medium text-gray-900">{ledger.deposit.balance.toLocaleString()}</td>
-                        <td className="px-3 py-2.5 text-center">
-                          <span className={statusBadge(ledger.deposit.status)}>{ledger.deposit.status}</span>
-                        </td>
-                        <td className="px-3 py-2.5 text-right">
-                          {ledger.deposit.status !== 'PAID' && (
-                            <button
-                              onClick={() => setPayTarget('DEPOSIT')}
-                              className={`text-xs px-2 py-1 rounded-md transition-colors ${payTarget === 'DEPOSIT' ? 'bg-indigo-600 text-white' : 'text-indigo-600 hover:bg-indigo-50'}`}
-                            >
-                              Pay
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Monthly rent */}
-              <div>
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                  Monthly Rent
-                  {ledger.carryOver > 0 && (
-                    <span className="ml-2 text-green-600 normal-case font-normal">
-                      (carry-over credit: KSh {ledger.carryOver.toLocaleString()})
-                    </span>
-                  )}
-                </h3>
-                <div className="border border-gray-200 rounded-lg overflow-hidden">
-                  <div className="overflow-x-auto max-h-64 overflow-y-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-gray-50 sticky top-0">
-                        <tr>
-                          <th className="text-left px-3 py-2 text-xs text-gray-500 font-medium">Month</th>
-                          <th className="text-right px-3 py-2 text-xs text-gray-500 font-medium">Due</th>
-                          <th className="text-right px-3 py-2 text-xs text-gray-500 font-medium">Paid</th>
-                          <th className="text-right px-3 py-2 text-xs text-gray-500 font-medium">Balance</th>
-                          <th className="text-center px-3 py-2 text-xs text-gray-500 font-medium">Status</th>
-                          <th className="px-3 py-2" />
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {ledger.months.map(m => (
-                          <tr key={m.period} className={payTarget === m.period ? 'bg-indigo-50' : 'hover:bg-gray-50'}>
-                            <td className="px-3 py-2.5 text-gray-700 font-medium">{fmtMonth(m.period)}</td>
-                            <td className="px-3 py-2.5 text-right text-gray-600">{m.effectiveDue.toLocaleString()}</td>
-                            <td className="px-3 py-2.5 text-right text-gray-600">{m.amountPaid.toLocaleString()}</td>
-                            <td className="px-3 py-2.5 text-right font-medium text-gray-900">{m.effectiveBalance.toLocaleString()}</td>
-                            <td className="px-3 py-2.5 text-center">
-                              <span className={statusBadge(m.effectiveStatus)}>{m.effectiveStatus}</span>
-                            </td>
-                            <td className="px-3 py-2.5 text-right">
-                              {m.effectiveStatus !== 'PAID' && (
-                                <button
-                                  onClick={() => setPayTarget(m.period)}
-                                  className={`text-xs px-2 py-1 rounded-md transition-colors ${payTarget === m.period ? 'bg-indigo-600 text-white' : 'text-indigo-600 hover:bg-indigo-50'}`}
-                                >
-                                  Pay
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-
-              {/* Record payment form */}
-              {payTarget && (
-                <div className="border border-indigo-200 bg-indigo-50 rounded-lg p-4 space-y-3">
-                  <h3 className="text-sm font-semibold text-indigo-800">
-                    Record Payment — {payTarget === 'DEPOSIT' ? 'Deposit' : fmtMonth(payTarget)}
-                  </h3>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Amount (KSh)</label>
-                      <input
-                        type="number"
-                        min="1"
-                        step="1"
-                        value={payAmount}
-                        onChange={e => setPayAmount(e.target.value)}
-                        placeholder="e.g. 8000"
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Payment Date</label>
-                      <input
-                        type="date"
-                        value={payDate}
-                        onChange={e => setPayDate(e.target.value)}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => { setPayTarget(''); setPayAmount(''); }}
-                      className="flex-1 border border-gray-300 text-gray-700 rounded-lg py-2 text-sm hover:bg-white transition-colors"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={recordPayment}
-                      disabled={paySubmitting || !payAmount}
-                      className="flex-1 bg-indigo-600 text-white rounded-lg py-2 text-sm hover:bg-indigo-700 disabled:opacity-50 transition-colors font-medium"
-                    >
-                      {paySubmitting ? 'Saving…' : 'Save Payment'}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-            </div>
-          ) : (
-            <div className="py-12 text-center text-sm text-red-400">Failed to load ledger.</div>
-          )}
-        </Modal>
-      )}
-
-      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
+      {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   );
 }
