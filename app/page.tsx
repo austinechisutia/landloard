@@ -61,6 +61,12 @@ export default async function LandingPage() {
               >
                 Sign In
               </Link>
+              <Link
+                href="/tour"
+                className="rounded-full border border-[#11430F]/15 bg-[#e4f386]/50 px-8 py-3.5 text-sm font-semibold text-[#11430F] transition hover:bg-[#e4f386]/80"
+              >
+                Take a Tour
+              </Link>
             </>
           )}
         </div>
@@ -229,6 +235,12 @@ export default async function LandingPage() {
                   >
                     Sign In
                   </Link>
+                  <Link
+                    href="/tour"
+                    className="rounded-full border border-white/20 px-8 py-3.5 text-sm font-semibold text-white transition hover:bg-white/10"
+                  >
+                    Explore the Tour
+                  </Link>
                 </>
               )}
             </div>
@@ -244,6 +256,7 @@ export default async function LandingPage() {
           <nav className="flex items-center gap-5 text-xs text-[#11430F]/55">
             <Link href="/login" className="transition hover:text-[#11430F]">Sign In</Link>
             <Link href="/login" className="transition hover:text-[#11430F]">Register</Link>
+            <Link href="/tour" className="transition hover:text-[#11430F]">Tour</Link>
           </nav>
         </div>
       </footer>

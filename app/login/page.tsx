@@ -1,4 +1,5 @@
 import { Suspense } from 'react';
+import Link from 'next/link';
 import { getServerSession } from 'next-auth';
 import { redirect } from 'next/navigation';
 import AuthPageForm from '@/components/auth/AuthPageForm';
@@ -43,6 +44,20 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
                   <p className="mt-0.5 text-xs text-[#11430F]/60">{feature.desc}</p>
                 </div>
               ))}
+            </div>
+
+            <div className="rounded-[2rem] border border-[#11430F]/10 bg-white/70 p-5 backdrop-blur-sm">
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[#11430F]/50">Not ready to sign in?</p>
+              <h2 className="mt-2 text-2xl font-semibold text-[#11430F]">Take the guided product tour first.</h2>
+              <p className="mt-2 text-sm leading-6 text-[#11430F]/65">
+                Explore a sample workflow and see how properties, tenants, and payments fit together before creating an account.
+              </p>
+              <Link
+                href="/tour"
+                className="mt-4 inline-flex rounded-full border border-[#11430F]/20 bg-[#e4f386]/60 px-5 py-2.5 text-sm font-semibold text-[#11430F] transition hover:bg-[#e4f386]"
+              >
+                View tour
+              </Link>
             </div>
           </div>
 

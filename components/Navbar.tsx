@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-const PUBLIC_ROUTES = ['/', '/login', '/forgot-password', '/reset-password'];
+const PUBLIC_ROUTES = ['/', '/login', '/tour', '/forgot-password', '/reset-password'];
 
 export default function Navbar() {
   const pathname = usePathname();
@@ -22,6 +22,9 @@ export default function Navbar() {
           Landlord
         </Link>
         <nav className="flex items-center gap-4">
+          <Link href="/tour" className="text-sm font-medium text-[#11430F]/80 transition hover:text-[#11430F]">
+            Tour
+          </Link>
           <Link href="/login" className="rounded-full border border-[#11430F]/30 px-4 py-1.5 text-sm font-medium text-[#11430F] transition hover:bg-[#11430F]/5">
             Sign in
           </Link>
