@@ -9,7 +9,7 @@ interface SidebarProps {
 }
 
 const navItems = [
-  { href: '/',             label: 'Dashboard',   icon: '▦' },
+  { href: '/dashboard',    label: 'Dashboard',   icon: '▦' },
   { href: '/house-types',  label: 'House Types', icon: '⌂' },
   { href: '/units',        label: 'Units',       icon: '◫' },
   { href: '/tenants',      label: 'Tenants',     icon: '👥' },
@@ -36,10 +36,10 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
       style={{ backgroundColor: '#11430F' }}
     >
       <div className="flex items-center justify-between px-6 py-5" style={{ borderBottom: '1px solid rgba(255,255,255,0.12)' }}>
-        <div>
+        <Link href="/" onClick={onClose}>
           <h1 className="text-xl font-bold tracking-tight">Landlord</h1>
           <p className="mt-0.5 text-xs" style={{ color: '#a8d5a8' }}>Rental Management</p>
-        </div>
+        </Link>
         <button
           onClick={onClose}
           className="rounded p-1 text-white/60 transition-colors hover:text-white md:hidden"
@@ -53,10 +53,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
 
       <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
         {navItems.map(item => {
-          const active =
-            item.href === '/'
-              ? pathname === '/'
-              : pathname.startsWith(item.href);
+          const active = pathname.startsWith(item.href);
           return (
             <Link
               key={item.href}

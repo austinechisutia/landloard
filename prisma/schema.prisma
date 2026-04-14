@@ -119,6 +119,7 @@ model User {
   image         String?
   passwordHash  String?
   role          UserRole    @default(USER)
+  country       String?
   lastLoginAt   DateTime?
   accounts      Account[]
   sessions      Session[]

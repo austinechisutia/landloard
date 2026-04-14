@@ -10,6 +10,27 @@ import {
   AUTH_PASSWORD_MIN_LENGTH,
 } from '@/lib/auth-utils';
 
+const COUNTRIES = [
+  'Afghanistan','Albania','Algeria','Angola','Argentina','Armenia','Australia','Austria',
+  'Azerbaijan','Bahrain','Bangladesh','Belarus','Belgium','Bolivia','Bosnia and Herzegovina',
+  'Botswana','Brazil','Bulgaria','Burkina Faso','Burundi','Cambodia','Cameroon','Canada',
+  'Chad','Chile','China','Colombia','Congo','Costa Rica','Croatia','Cuba','Cyprus',
+  'Czech Republic','Denmark','Dominican Republic','Ecuador','Egypt','El Salvador','Estonia',
+  'Ethiopia','Finland','France','Gabon','Gambia','Georgia','Germany','Ghana','Greece',
+  'Guatemala','Guinea','Haiti','Honduras','Hungary','India','Indonesia','Iran','Iraq',
+  'Ireland','Israel','Italy','Jamaica','Japan','Jordan','Kazakhstan','Kenya','Kosovo',
+  'Kuwait','Kyrgyzstan','Laos','Latvia','Lebanon','Libya','Lithuania','Luxembourg',
+  'Madagascar','Malawi','Malaysia','Mali','Mexico','Moldova','Mongolia','Morocco',
+  'Mozambique','Myanmar','Namibia','Nepal','Netherlands','New Zealand','Nicaragua','Niger',
+  'Nigeria','North Korea','Norway','Oman','Pakistan','Panama','Paraguay','Peru','Philippines',
+  'Poland','Portugal','Qatar','Romania','Russia','Rwanda','Saudi Arabia','Senegal','Serbia',
+  'Sierra Leone','Singapore','Slovakia','Slovenia','Somalia','South Africa','South Korea',
+  'South Sudan','Spain','Sri Lanka','Sudan','Sweden','Switzerland','Syria','Taiwan',
+  'Tajikistan','Tanzania','Thailand','Togo','Tunisia','Turkey','Turkmenistan','Uganda',
+  'Ukraine','United Arab Emirates','United Kingdom','United States','Uruguay','Uzbekistan',
+  'Venezuela','Vietnam','Yemen','Zambia','Zimbabwe',
+];
+
 interface AuthPageFormProps {
   callbackUrl: string;
   oauthError?: string;
@@ -38,6 +59,7 @@ export default function AuthPageForm({ callbackUrl, oauthError }: AuthPageFormPr
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [country, setCountry] = useState('');
   const [error, setError] = useState(resolveOAuthError(oauthError));
   const [isLoading, setIsLoading] = useState(false);
 
@@ -47,7 +69,7 @@ export default function AuthPageForm({ callbackUrl, oauthError }: AuthPageFormPr
     setError('');
   }
 
-  async function handleSubmit(event: React.FormEvent) {
+  async function handleSubmit(event: React.SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
     setError('');
     setIsLoading(true);
@@ -57,7 +79,7 @@ export default function AuthPageForm({ callbackUrl, oauthError }: AuthPageFormPr
         const response = await fetch('/api/auth/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, email, password }),
+          body: JSON.stringify({ name, email, password, country }),
         });
 
         if (!response.ok) {
@@ -87,7 +109,7 @@ export default function AuthPageForm({ callbackUrl, oauthError }: AuthPageFormPr
   }
 
   return (
-    <div className="rounded-[2rem] border border-white/60 bg-white/85 p-6 shadow-2xl shadow-black/10 backdrop-blur-xl md:p-8">
+    <div className="rounded-[2rem] border border-gray-200 bg-white p-6 shadow-2xl shadow-black/8 md:p-8">
       <div className="mb-6 flex items-center justify-between">
         <h2 className="text-xl font-semibold text-[#11430F]">{mode === 'signin' ? 'Sign in' : 'Create account'}</h2>
         <Link href="/" className="rounded-full border border-[#11430F]/30 px-3 py-1 text-xs font-medium text-[#11430F] transition hover:bg-[#11430F]/5">
@@ -126,44 +148,70 @@ export default function AuthPageForm({ callbackUrl, oauthError }: AuthPageFormPr
 
       <form onSubmit={handleSubmit} className="space-y-3">
         {mode === 'signup' && (
-          <input
-            type="text"
-            placeholder="Name (optional)"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            maxLength={AUTH_NAME_MAX_LENGTH}
-            autoComplete="name"
-            className="w-full rounded-2xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-[#11430F] focus:ring-2 focus:ring-[#e4f386]"
-          />
+          <>
+            <div className="space-y-1">
+              <label className="block text-xs font-medium text-[#11430F]/70">Full name</label>
+              <input
+                type="text"
+                placeholder="Enter your full name"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                maxLength={AUTH_NAME_MAX_LENGTH}
+                required
+                autoComplete="name"
+                className="w-full rounded-2xl border border-gray-300 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-[#11430F] focus:ring-2 focus:ring-[#e4f386]"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="block text-xs font-medium text-[#11430F]/70">Country</label>
+              <select
+                value={country}
+                onChange={(e) => setCountry(e.target.value)}
+                required
+                autoComplete="country-name"
+                className="w-full rounded-2xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-[#11430F] focus:ring-2 focus:ring-[#e4f386]"
+                style={{ color: country ? '#171717' : '#9ca3af' }}
+              >
+                <option value="" disabled>Select your country</option>
+                {COUNTRIES.map(c => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+          </>
         )}
-        <input
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          required
-          autoComplete="email"
-          className="w-full rounded-2xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-[#11430F] focus:ring-2 focus:ring-[#e4f386]"
-        />
+        <div className="space-y-1">
+          <label className="block text-xs font-medium text-[#11430F]/70">Email address</label>
+          <input
+            type="email"
+            placeholder="Enter your email address"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            required
+            autoComplete="email"
+            className="w-full rounded-2xl border border-gray-300 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-[#11430F] focus:ring-2 focus:ring-[#e4f386] [&:-webkit-autofill]:![background-color:white] [&:-webkit-autofill]:[box-shadow:0_0_0_40px_white_inset]"
+          />
+        </div>
         <div>
+          <div className="mb-1 flex items-center justify-between">
+            <label className="block text-xs font-medium text-[#11430F]/70">Password</label>
+            {mode === 'signin' && (
+              <Link href="/forgot-password" className="text-xs text-[#11430F]/70 underline-offset-2 hover:underline">
+                Forgot password?
+              </Link>
+            )}
+          </div>
           <input
             type="password"
-            placeholder="Password"
+            placeholder={mode === 'signin' ? 'Enter your password' : 'Create a password (min 8 characters)'}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             required
             minLength={AUTH_PASSWORD_MIN_LENGTH}
             maxLength={AUTH_PASSWORD_MAX_LENGTH}
             autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
-            className="w-full rounded-2xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-[#11430F] focus:ring-2 focus:ring-[#e4f386]"
+            className="w-full rounded-2xl border border-gray-300 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-[#11430F] focus:ring-2 focus:ring-[#e4f386] [&:-webkit-autofill]:![background-color:white] [&:-webkit-autofill]:[box-shadow:0_0_0_40px_white_inset]"
           />
-          {mode === 'signin' && (
-            <div className="mt-1.5 text-right">
-              <Link href="/forgot-password" className="text-xs text-[#11430F]/70 underline-offset-2 hover:underline">
-                Forgot password?
-              </Link>
-            </div>
-          )}
         </div>
 
         <button

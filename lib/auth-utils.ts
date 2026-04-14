@@ -1,4 +1,4 @@
-export const DEFAULT_AUTH_REDIRECT = '/';
+export const DEFAULT_AUTH_REDIRECT = '/dashboard';
 export const AUTH_PASSWORD_MIN_LENGTH = 8;
 export const AUTH_PASSWORD_MAX_LENGTH = 72;
 export const AUTH_NAME_MAX_LENGTH = 80;

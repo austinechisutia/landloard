@@ -8,6 +8,13 @@ export const proxy = withAuth({
 
 export const config = {
 	matcher: [
-		'/((?!api/auth|_next/static|_next/image|favicon.ico|login|forgot-password|reset-password).*)',
+		'/dashboard/:path*',
+		'/house-types/:path*',
+		'/units/:path*',
+		'/tenants/:path*',
+		'/payments/:path*',
+		'/services/:path*',
+		'/account/:path*',
+		'/admin/:path*',
 	],
 };

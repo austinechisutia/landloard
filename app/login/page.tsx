@@ -19,9 +19,9 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   }
 
   return (
-    <main className="relative min-h-screen bg-[#f5f0e8] pt-28 text-[#171717]">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(228,243,134,0.55),_transparent_34%),radial-gradient(circle_at_bottom_right,_rgba(17,67,15,0.14),_transparent_32%),linear-gradient(135deg,_#f8f5ef_0%,_#efe6d6_100%)]" />
-      <div className="absolute inset-x-0 top-16 mx-auto h-72 w-72 rounded-full bg-white/30 blur-3xl" />
+    <main className="relative min-h-screen bg-white pt-28 text-[#171717]">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(228,243,134,0.25),_transparent_40%),radial-gradient(circle_at_bottom_right,_rgba(17,67,15,0.06),_transparent_40%)]" />
+      <div className="absolute inset-x-0 top-16 mx-auto h-72 w-72 rounded-full bg-[#e4f386]/20 blur-3xl" />
 
       <div className="relative mx-auto max-w-6xl px-4 pb-20">
         <div className="grid gap-12 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">

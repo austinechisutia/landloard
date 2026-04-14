@@ -19,10 +19,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 });
     }
 
-    const { email, password, name } = body as Record<string, unknown>;
+    const { email, password, name, country } = body as Record<string, unknown>;
 
-    if (!email || !password) {
-      return NextResponse.json({ error: 'Email and password are required.' }, { status: 400 });
+    if (!email || !password || !name || !country) {
+      return NextResponse.json({ error: 'Name, email, password, and country are required.' }, { status: 400 });
     }
 
     if (typeof email !== 'string' || !isValidEmail(email)) {
@@ -41,8 +41,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Password must be at most ${AUTH_PASSWORD_MAX_LENGTH} characters.` }, { status: 400 });
     }
 
-    if (name != null && (typeof name !== 'string' || name.length > AUTH_NAME_MAX_LENGTH)) {
+    if (typeof name !== 'string' || !name.trim()) {
+      return NextResponse.json({ error: 'Name is required.' }, { status: 400 });
+    }
+    if (name.length > AUTH_NAME_MAX_LENGTH) {
       return NextResponse.json({ error: `Name must be at most ${AUTH_NAME_MAX_LENGTH} characters.` }, { status: 400 });
+    }
+    if (typeof country !== 'string' || !country.trim()) {
+      return NextResponse.json({ error: 'Country is required.' }, { status: 400 });
     }
 
     const normalizedEmail = normalizeEmail(email);
@@ -56,9 +62,10 @@ export async function POST(req: NextRequest) {
 
     await prisma.user.create({
       data: {
-        name: typeof name === 'string' ? name : undefined,
+        name: (name as string).trim(),
         email: normalizedEmail,
         passwordHash,
+        country: (country as string).trim(),
       },
     });
 
