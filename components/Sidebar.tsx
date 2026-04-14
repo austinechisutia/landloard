@@ -88,6 +88,22 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
           <span className="text-base">👤</span>
           <span>My Account</span>
         </Link>
+
+        {session?.user?.role === 'ADMIN' && (
+          <Link
+            href="/admin"
+            onClick={onClose}
+            className="flex items-center gap-3 rounded-lg px-4 py-2.5 text-sm transition-colors"
+            style={{
+              backgroundColor: pathname.startsWith('/admin') ? 'rgba(228,243,134,0.18)' : 'transparent',
+              color: pathname.startsWith('/admin') ? '#e4f386' : 'rgba(255,255,255,0.75)',
+              fontWeight: pathname.startsWith('/admin') ? '600' : '400',
+            }}
+          >
+            <span className="text-base">🛡</span>
+            <span>Admin</span>
+          </Link>
+        )}
       </nav>
 
       <div className="px-4 py-4" style={{ borderTop: '1px solid rgba(255,255,255,0.12)' }}>

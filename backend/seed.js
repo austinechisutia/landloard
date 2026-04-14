@@ -12,7 +12,7 @@ async function seed() {
     const hash = await bcrypt.hash('admin123', 10);
     await client.query(
       'INSERT INTO users (email, password_hash, name) VALUES ($1, $2, $3)',
-      ['admin@landloard.com', hash, 'Admin']
+      ['austineakhonya624@gmail.com', hash, 'Admin']
     );
 
     console.log('Creating houses...');

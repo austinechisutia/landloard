@@ -29,7 +29,16 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const userId = await requireUserId();
-    const { name, houseTypeId, depositMonths } = await request.json();
+    let body: Record<string, unknown>;
+    try {
+      body = await request.json();
+    } catch {
+      return Response.json({ error: 'Request body is required' }, { status: 400 });
+    }
+    const name         = String(body.name         ?? '');
+    const houseTypeId  = String(body.houseTypeId  ?? '');
+    const depositMonths = body.depositMonths != null ? String(body.depositMonths) : '';
+
     if (!name || !houseTypeId) {
       return Response.json({ error: 'name and houseTypeId are required' }, { status: 400 });
     }
@@ -45,7 +54,7 @@ export async function POST(request: Request) {
       data: {
         userId,
         name,
-        houseTypeId:  parseInt(houseTypeId),
+        houseTypeId:   parseInt(houseTypeId),
         depositMonths: depositMonths ? parseInt(depositMonths) : 1,
       },
       include: { houseType: true },
