@@ -40,7 +40,7 @@ export const authOptions: NextAuthOptions = {
           where: { email: normalizeEmail(credentials.email) },
         });
 
-        if (!user || !user.passwordHash) {
+        if (!user || !user.passwordHash || user.deletedAt) {
           throw new Error('Invalid email or password.');
         }
 

@@ -9,7 +9,7 @@ datasource db {
 model HouseType {
   id         Int       @id @default(autoincrement())
   userId     String?
-  user       User?     @relation(fields: [userId], references: [id])
+  user       User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
   name       String
   rentAmount Decimal   @db.Decimal(10, 2)
   units      Unit[]
@@ -25,7 +25,7 @@ enum UnitStatus {
 model Unit {
   id            Int        @id @default(autoincrement())
   userId        String?
-  user          User?      @relation(fields: [userId], references: [id])
+  user          User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
   name          String
   status        UnitStatus @default(VACANT)
   depositMonths Int        @default(1)
@@ -39,7 +39,7 @@ model Unit {
 model Tenant {
   id                Int       @id @default(autoincrement())
   userId            String?
-  user              User?     @relation(fields: [userId], references: [id])
+  user              User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
   name              String
   phone             String
   houseTypeId       Int
@@ -70,7 +70,7 @@ enum PaymentType {
 model Payment {
   id          Int              @id @default(autoincrement())
   userId      String?
-  user        User?            @relation(fields: [userId], references: [id])
+  user        User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
   tenantId    Int
   tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   unitId      Int
@@ -96,7 +96,7 @@ enum ServiceType {
 model Service {
   id        Int              @id @default(autoincrement())
   userId    String?
-  user      User?            @relation(fields: [userId], references: [id])
+  user      User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
   name      String
   type      ServiceType      @default(FIXED)
   unitPrice Decimal          @db.Decimal(10, 2)
@@ -121,6 +121,7 @@ model User {
   role          UserRole    @default(USER)
   country       String?
   lastLoginAt   DateTime?
+  deletedAt     DateTime?
   accounts      Account[]
   sessions      Session[]
   auditLogs     AuditLog[]
@@ -136,7 +137,7 @@ model User {
 model AuditLog {
   id        Int      @id @default(autoincrement())
   userId    String
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   action    String   // CREATE | UPDATE | DELETE
   entity    String   // Tenant | Unit | Payment | HouseType | Service
   entityId  String
