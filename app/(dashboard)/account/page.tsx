@@ -1,5 +1,6 @@
 import { getServerSession } from 'next-auth';
 import { redirect } from 'next/navigation';
+import type { AuditLog } from '@prisma/client';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 
@@ -33,7 +34,7 @@ export default async function AccountPage() {
     redirect('/login');
   }
 
-  const providerNames = [...new Set(user.accounts.map((account) => account.provider))];
+  const providerNames = [...new Set((user.accounts as { provider: string }[]).map((account) => account.provider))];
 
   return (
     <div className="space-y-8">
@@ -84,7 +85,7 @@ export default async function AccountPage() {
             <div className="rounded-xl bg-[#f7f2e9] px-4 py-8 text-center text-sm text-[#11430F]/60">No edits recorded yet.</div>
           ) : (
             <div className="space-y-3">
-              {auditLogs.map((log) => (
+              {(auditLogs as AuditLog[]).map((log) => (
                 <div key={log.id} className="rounded-xl border border-[#11430F]/8 bg-white px-4 py-3">
                   <div className="flex items-center justify-between gap-4">
                     <div>
