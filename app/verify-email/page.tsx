@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import VerifyEmailActions from '@/components/auth/VerifyEmailActions';
 import { verifyEmailToken } from '@/lib/email-verification';
 
@@ -9,12 +10,13 @@ interface VerifyEmailPageProps {
 export default async function VerifyEmailPage({ searchParams }: VerifyEmailPageProps) {
   const { token, email, sent } = await searchParams;
 
-  let state: 'missing' | 'invalid' | 'expired' | 'success' | 'pending' = 'pending';
+  let state: 'missing' | 'invalid' | 'expired' | 'pending' = 'pending';
   const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
 
   if (token && normalizedEmail) {
     const result = await verifyEmailToken(normalizedEmail, token);
-    state = result.ok ? 'success' : result.reason;
+    if (result.ok) redirect('/login?verified=success');
+    state = result.reason;
   } else if (normalizedEmail) {
     state = 'pending';
   } else {
@@ -29,17 +31,6 @@ export default async function VerifyEmailPage({ searchParams }: VerifyEmailPageP
       <div className="relative mx-auto max-w-md px-4 pb-16">
         <div className="rounded-[2rem] border border-white/60 bg-white/85 p-8 shadow-2xl shadow-black/10 backdrop-blur-xl">
           <h1 className="mb-2 text-xl font-semibold text-[#11430F]">Verify your email</h1>
-
-          {state === 'success' && (
-            <>
-              <p className="mb-6 rounded-2xl bg-green-50 px-4 py-3 text-sm text-green-700">
-                Your email has been verified. You can now sign in to your account.
-              </p>
-              <Link href="/login?verified=success" className="block w-full rounded-2xl bg-[#11430F] px-4 py-3 text-center text-sm font-semibold text-[#e4f386] transition hover:opacity-90">
-                Continue to sign in
-              </Link>
-            </>
-          )}
 
           {state === 'pending' && (
             <>
