@@ -2,6 +2,10 @@ require('dotenv').config();
 const bcrypt = require('bcryptjs');
 const pool = require('./src/config/db');
 
+const adminEmail = process.env.ADMIN_EMAIL || 'austineakhonya624@gmail.com';
+const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
+const adminName = process.env.ADMIN_NAME || 'Admin';
+
 async function seed() {
   const client = await pool.connect();
   try {
@@ -9,10 +13,10 @@ async function seed() {
     await client.query('TRUNCATE payments, tenants, houses, users RESTART IDENTITY CASCADE');
 
     console.log('Creating admin user...');
-    const hash = await bcrypt.hash('admin123', 10);
+    const hash = await bcrypt.hash(adminPassword, 10);
     await client.query(
       'INSERT INTO users (email, password_hash, name) VALUES ($1, $2, $3)',
-      ['austineakhonya624@gmail.com', hash, 'Admin']
+      [adminEmail, hash, adminName]
     );
 
     console.log('Creating houses...');
@@ -73,7 +77,7 @@ async function seed() {
     }
 
     console.log('\nSeed complete!');
-    console.log('Login: admin@landloard.com / admin123');
+    console.log(`Login: ${adminEmail} / ${adminPassword}`);
   } catch (err) {
     console.error('Seed failed:', err.message);
   } finally {

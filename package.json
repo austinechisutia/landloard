@@ -19,6 +19,7 @@
     "@next-auth/prisma-adapter": "^1.0.7",
     "@prisma/adapter-pg": "^7.7.0",
     "@prisma/client": "^7.7.0",
+    "@prisma/extension-accelerate": "^2.0.2",
     "@types/bcrypt": "^6.0.0",
     "@types/nodemailer": "^8.0.0",
     "@types/pg": "^8.20.0",

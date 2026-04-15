@@ -54,6 +54,7 @@ export default function AuthPageForm({ callbackUrl, oauthError }: AuthPageFormPr
   const router = useRouter();
   const searchParams = useSearchParams();
   const resetSuccess = searchParams.get('reset') === 'success';
+  const verifiedSuccess = searchParams.get('verified') === 'success';
 
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [name, setName] = useState('');
@@ -87,6 +88,13 @@ export default function AuthPageForm({ callbackUrl, oauthError }: AuthPageFormPr
           setError(payload.error ?? 'Registration failed. Please try again.');
           return;
         }
+
+        const payload = await response.json().catch(() => ({}));
+        const nextEmail = typeof payload.email === 'string' ? payload.email : email;
+        const sentFlag = payload.verificationSent === false ? '&sent=0' : '';
+        router.replace(`/verify-email?email=${encodeURIComponent(nextEmail)}${sentFlag}`);
+        router.refresh();
+        return;
       }
 
       const result = await signIn('credentials', {
@@ -120,6 +128,12 @@ export default function AuthPageForm({ callbackUrl, oauthError }: AuthPageFormPr
       {resetSuccess && (
         <div className="mb-4 rounded-2xl bg-green-50 px-4 py-3 text-sm text-green-700">
           Password updated successfully. Sign in with your new password.
+        </div>
+      )}
+
+      {verifiedSuccess && (
+        <div className="mb-4 rounded-2xl bg-green-50 px-4 py-3 text-sm text-green-700">
+          Email verified successfully. You can now sign in.
         </div>
       )}
 

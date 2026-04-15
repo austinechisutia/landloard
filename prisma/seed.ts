@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+import bcrypt from 'bcrypt';
 
 const connectionString = process.env.DATABASE_URL!;
 const adapter = new PrismaPg({ connectionString });
@@ -74,6 +75,23 @@ async function main() {
   });
 
   console.log('Payment created, status:', payment.status);
+  // Admin user
+  const adminEmail    = process.env.ADMIN_EMAIL;
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  const adminName     = process.env.ADMIN_NAME ?? 'Admin';
+
+  if (adminEmail && adminPassword) {
+    const passwordHash = await bcrypt.hash(adminPassword, 10);
+    await prisma.user.upsert({
+      where:  { email: adminEmail },
+      update: { role: 'ADMIN', name: adminName, passwordHash },
+      create: { email: adminEmail, name: adminName, passwordHash, role: 'ADMIN' },
+    });
+    console.log('Admin user seeded:', adminEmail);
+  } else {
+    console.log('Skipping admin seed — ADMIN_EMAIL or ADMIN_PASSWORD not set.');
+  }
+
   console.log('Seed complete!');
 }
 

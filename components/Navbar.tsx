@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-const PUBLIC_ROUTES = ['/', '/login', '/tour', '/forgot-password', '/reset-password'];
+const PUBLIC_ROUTES = ['/', '/login', '/tour', '/verify-email', '/forgot-password', '/reset-password'];
 
 export default function Navbar() {
   const pathname = usePathname();

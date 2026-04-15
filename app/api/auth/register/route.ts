@@ -8,6 +8,8 @@ import {
   isValidEmail,
   normalizeEmail,
 } from '@/lib/auth-utils';
+import { createEmailVerificationToken, getAppBaseUrl } from '@/lib/email-verification';
+import { sendVerificationEmail } from '@/lib/mailer';
 
 export async function POST(req: NextRequest) {
   try {
@@ -69,7 +71,18 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return NextResponse.json({ ok: true }, { status: 201 });
+    let verificationSent = false;
+
+    try {
+      const { token } = await createEmailVerificationToken(normalizedEmail);
+      const verifyUrl = `${getAppBaseUrl()}/verify-email?token=${token}&email=${encodeURIComponent(normalizedEmail)}`;
+      await sendVerificationEmail(normalizedEmail, verifyUrl);
+      verificationSent = true;
+    } catch (error) {
+      console.error('[register:sendVerificationEmail]', error);
+    }
+
+    return NextResponse.json({ ok: true, email: normalizedEmail, verificationSent }, { status: 201 });
   } catch (error) {
     console.error('[register]', error);
     return NextResponse.json({ error: 'An unexpected error occurred.' }, { status: 500 });
