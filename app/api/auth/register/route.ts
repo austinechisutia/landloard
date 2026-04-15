@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
 
     try {
       const { token } = await createEmailVerificationToken(normalizedEmail);
-      const verifyUrl = `${getAppBaseUrl()}/verify-email?token=${token}&email=${encodeURIComponent(normalizedEmail)}`;
+      const verifyUrl = `${getAppBaseUrl(req)}/verify-email?token=${token}&email=${encodeURIComponent(normalizedEmail)}`;
       await sendVerificationEmail(normalizedEmail, verifyUrl);
       verificationSent = true;
     } catch (error) {

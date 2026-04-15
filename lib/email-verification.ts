@@ -4,7 +4,11 @@ import { normalizeEmail } from '@/lib/auth-utils';
 
 const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 
-export function getAppBaseUrl() {
+export function getAppBaseUrl(req?: Request) {
+  if (req) {
+    const { protocol, host } = new URL(req.url);
+    return `${protocol}//${host}`;
+  }
   if (process.env.NEXTAUTH_URL) return process.env.NEXTAUTH_URL;
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
   return 'http://localhost:3000';
