@@ -2,9 +2,17 @@ import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { normalizeEmail } from '@/lib/auth-utils';
+import { getAppBaseUrl } from '@/lib/email-verification';
 import { sendPasswordResetEmail } from '@/lib/mailer';
+import { rateLimit, getClientIP } from '@/lib/rate-limit';
 
 export async function POST(req: NextRequest) {
+  const ip = getClientIP(req);
+  const allowed = await rateLimit(`forgot-password:${ip}`, 5, 60 * 60);
+  if (!allowed) {
+    return NextResponse.json({ success: true });
+  }
+
   let body: unknown;
 
   try {
@@ -20,6 +28,12 @@ export async function POST(req: NextRequest) {
   }
 
   const normalizedEmail = normalizeEmail(email);
+
+  const emailAllowed = await rateLimit(`forgot-password:email:${normalizedEmail}`, 3, 60 * 60);
+  if (!emailAllowed) {
+    return NextResponse.json({ success: true });
+  }
+
   const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
 
   if (!user || !user.passwordHash) {
@@ -39,8 +53,7 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  const baseUrl = process.env.NEXTAUTH_URL ?? 'http://localhost:3000';
-  const resetUrl = `${baseUrl}/reset-password?token=${token}`;
+  const resetUrl = `${getAppBaseUrl(req)}/reset-password?token=${token}`;
 
   try {
     await sendPasswordResetEmail(normalizedEmail, resetUrl);

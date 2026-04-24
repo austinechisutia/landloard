@@ -47,6 +47,41 @@ export async function sendVerificationEmail(to: string, verifyUrl: string) {
   });
 }
 
+export async function sendAlreadyRegisteredEmail(to: string, loginUrl: string) {
+  await transporter.sendMail({
+    from,
+    to,
+    subject: 'Someone tried to register with your email',
+    html: `<!DOCTYPE html>
+<html lang="en">
+  <body style="margin:0;padding:32px 16px;background:#f5f0e8;font-family:Arial,sans-serif;color:#171717;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#ffffff;border-radius:24px;padding:40px;box-shadow:0 20px 50px rgba(17,67,15,0.08);">
+            <tr>
+              <td>
+                <h1 style="margin:0 0 16px;font-family:Georgia,'Times New Roman',serif;font-size:32px;line-height:1.1;color:#11430F;">Account already exists</h1>
+                <p style="margin:0 0 24px;font-size:15px;line-height:1.7;color:#4b5563;">
+                  Someone tried to register an account using this email address, but an account already exists. If this was you, sign in instead.
+                </p>
+                <p style="margin:0 0 28px;">
+                  <a href="${loginUrl}" style="display:inline-block;border-radius:16px;background:#11430F;color:#e4f386;text-decoration:none;font-weight:700;padding:14px 24px;">Sign in</a>
+                </p>
+                <p style="margin:0;font-size:13px;line-height:1.6;color:#6b7280;">
+                  If you didn&apos;t attempt this, you can safely ignore this email.
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`,
+  });
+}
+
 export async function sendPasswordResetEmail(to: string, resetUrl: string) {
   await transporter.sendMail({
     from,

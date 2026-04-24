@@ -9,10 +9,17 @@ import {
   normalizeEmail,
 } from '@/lib/auth-utils';
 import { createEmailVerificationToken, getAppBaseUrl } from '@/lib/email-verification';
-import { sendVerificationEmail } from '@/lib/mailer';
+import { sendVerificationEmail, sendAlreadyRegisteredEmail } from '@/lib/mailer';
+import { rateLimit, getClientIP } from '@/lib/rate-limit';
 
 export async function POST(req: NextRequest) {
   try {
+    const ip = getClientIP(req);
+    const allowed = await rateLimit(`register:${ip}`, 5, 60 * 60);
+    if (!allowed) {
+      return NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
+    }
+
     let body: unknown;
 
     try {
@@ -57,10 +64,23 @@ export async function POST(req: NextRequest) {
     const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
 
     if (existing) {
-      return NextResponse.json({ error: 'An account with this email already exists.' }, { status: 409 });
+      // Don't reveal whether the email is registered; handle silently.
+      const baseUrl = getAppBaseUrl(req);
+      try {
+        if (!existing.emailVerified) {
+          const { token } = await createEmailVerificationToken(normalizedEmail);
+          const verifyUrl = `${baseUrl}/verify-email?token=${token}&email=${encodeURIComponent(normalizedEmail)}`;
+          await sendVerificationEmail(normalizedEmail, verifyUrl);
+        } else {
+          await sendAlreadyRegisteredEmail(normalizedEmail, `${baseUrl}/login`);
+        }
+      } catch (error) {
+        console.error('[register:existing-email-notify]', error);
+      }
+      return NextResponse.json({ ok: true, email: normalizedEmail, verificationSent: true }, { status: 201 });
     }
 
-    const passwordHash = await bcrypt.hash(password, 10);
+    const passwordHash = await bcrypt.hash(password, 12);
 
     await prisma.user.create({
       data: {

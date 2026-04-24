@@ -2,8 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcrypt';
 import { prisma } from '@/lib/prisma';
 import { AUTH_PASSWORD_MAX_LENGTH, AUTH_PASSWORD_MIN_LENGTH } from '@/lib/auth-utils';
+import { rateLimit, getClientIP } from '@/lib/rate-limit';
 
 export async function POST(req: NextRequest) {
+  const ip = getClientIP(req);
+  const allowed = await rateLimit(`reset-password:${ip}`, 10, 60 * 60);
+  if (!allowed) {
+    return NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
+  }
+
   let body: unknown;
 
   try {
@@ -33,10 +40,11 @@ export async function POST(req: NextRequest) {
   }
 
   const passwordHash = await bcrypt.hash(password, 12);
+  const now = new Date();
 
   await prisma.user.update({
     where: { id: record.userId },
-    data: { passwordHash },
+    data: { passwordHash, passwordChangedAt: now },
   });
 
   await prisma.passwordResetToken.delete({ where: { token } });

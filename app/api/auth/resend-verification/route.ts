@@ -3,8 +3,15 @@ import { prisma } from '@/lib/prisma';
 import { createEmailVerificationToken, getAppBaseUrl } from '@/lib/email-verification';
 import { isValidEmail, normalizeEmail } from '@/lib/auth-utils';
 import { sendVerificationEmail } from '@/lib/mailer';
+import { rateLimit, getClientIP } from '@/lib/rate-limit';
 
 export async function POST(req: NextRequest) {
+  const ip = getClientIP(req);
+  const ipAllowed = await rateLimit(`resend-verification:${ip}`, 5, 60 * 60);
+  if (!ipAllowed) {
+    return NextResponse.json({ success: true });
+  }
+
   let body: unknown;
 
   try {
@@ -20,6 +27,10 @@ export async function POST(req: NextRequest) {
   }
 
   const normalizedEmail = normalizeEmail(email);
+  const emailAllowed = await rateLimit(`resend-verification:email:${normalizedEmail}`, 3, 60 * 60);
+  if (!emailAllowed) {
+    return NextResponse.json({ success: true });
+  }
   const user = await prisma.user.findUnique({
     where: { email: normalizedEmail },
     select: { emailVerified: true },

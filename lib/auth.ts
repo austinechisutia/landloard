@@ -10,6 +10,7 @@ import {
   getSafeCallbackPath,
   normalizeEmail,
 } from '@/lib/auth-utils';
+import { rateLimit } from '@/lib/rate-limit';
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
@@ -36,8 +37,14 @@ export const authOptions: NextAuthOptions = {
           throw new Error('Invalid email or password.');
         }
 
+        const email = normalizeEmail(credentials.email);
+        const allowed = await rateLimit(`login:${email}`, 10, 15 * 60);
+        if (!allowed) {
+          throw new Error('Too many login attempts. Please try again in 15 minutes.');
+        }
+
         const user = await prisma.user.findUnique({
-          where: { email: normalizeEmail(credentials.email) },
+          where: { email },
         });
 
         if (!user || !user.passwordHash || user.deletedAt) {
@@ -74,8 +81,17 @@ export const authOptions: NextAuthOptions = {
         try {
           const dbUser = await prisma.user.findUnique({
             where: { id: token.sub },
-            select: { role: true },
+            select: { role: true, passwordChangedAt: true },
           });
+
+          // Invalidate JWT if password was changed after it was issued.
+          // Throwing here causes NextAuth to discard the token and return a null session.
+          if (dbUser?.passwordChangedAt && typeof token.iat === 'number') {
+            if (dbUser.passwordChangedAt.getTime() > token.iat * 1000) {
+              throw new Error('Session invalidated: password changed.');
+            }
+          }
+
           token.role = dbUser?.role ?? 'USER';
         } catch {
           token.role = token.role ?? 'USER';
