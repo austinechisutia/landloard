@@ -1,18 +1,13 @@
 import { prisma } from '@/lib/prisma';
 import { logAudit } from '@/lib/audit';
-import { requireUserId } from '@/lib/current-user';
-
-const ownedOrLegacy = (id: number, userId: string) => ({
-  id,
-  OR: [{ userId }, { userId: null }],
-});
+import { requireOrgMutation } from '@/lib/current-user';
 
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const userId = await requireUserId();
+    const { userId, orgId } = await requireOrgMutation(request);
     const { id } = await params;
     const {
       name, phone, houseTypeId, unitId, moveInDate,
@@ -20,7 +15,7 @@ export async function PATCH(
       householdCount, householdMembers,
     } = await request.json();
 
-    const existing = await prisma.tenant.findFirst({ where: ownedOrLegacy(parseInt(id), userId) });
+    const existing = await prisma.tenant.findFirst({ where: { id: parseInt(id), organizationId: orgId } });
     if (!existing) return Response.json({ error: 'Tenant not found' }, { status: 404 });
 
     const unitChanged   = parseInt(unitId) !== existing.unitId;
@@ -36,11 +31,11 @@ export async function PATCH(
           houseType:        { connect: { id: parseInt(houseTypeId) } },
           unit:             { connect: { id: parseInt(unitId) } },
           moveInDate:       newMoveIn,
-          idNumber:         idNumber        !== undefined ? (idNumber        || null) : undefined,
-          country:          country         !== undefined ? (country         || null) : undefined,
+          idNumber:         idNumber         !== undefined ? (idNumber         || null) : undefined,
+          country:          country          !== undefined ? (country          || null) : undefined,
           emergencyContact: emergencyContact !== undefined ? (emergencyContact || null) : undefined,
-          emergencyPhone:   emergencyPhone  !== undefined ? (emergencyPhone  || null) : undefined,
-          householdCount:   householdCount  !== undefined ? Number(householdCount)    : undefined,
+          emergencyPhone:   emergencyPhone   !== undefined ? (emergencyPhone   || null) : undefined,
+          householdCount:   householdCount   !== undefined ? Number(householdCount)     : undefined,
           householdMembers: householdMembers !== undefined ? (householdMembers || null) : undefined,
         },
         include: { houseType: true, unit: true },
@@ -74,13 +69,13 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const userId = await requireUserId();
+    const { userId, orgId } = await requireOrgMutation(request);
     const { id } = await params;
-    const tenant = await prisma.tenant.findFirst({ where: ownedOrLegacy(parseInt(id), userId) });
+    const tenant = await prisma.tenant.findFirst({ where: { id: parseInt(id), organizationId: orgId } });
     if (!tenant) return Response.json({ error: 'Tenant not found' }, { status: 404 });
 
     await prisma.$transaction(async (tx) => {

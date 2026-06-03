@@ -1,12 +1,12 @@
 import { prisma } from '@/lib/prisma';
 import { logAudit } from '@/lib/audit';
-import { requireUserId } from '@/lib/current-user';
+import { requireOrgId, requireOrgMutation } from '@/lib/current-user';
 
 export async function GET() {
   try {
-    const userId = await requireUserId();
+    const { orgId } = await requireOrgId();
     const tenants = await prisma.tenant.findMany({
-      where: { userId },
+      where: { organizationId: orgId },
       include: {
         houseType: true,
         unit: { include: { houseType: true } },
@@ -31,7 +31,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const userId = await requireUserId();
+    const { userId, orgId } = await requireOrgMutation(request);
     const {
       name, phone, houseTypeId, unitId, moveInDate,
       idNumber, country, emergencyContact, emergencyPhone,
@@ -42,12 +42,12 @@ export async function POST(request: Request) {
     }
 
     const houseType = await prisma.houseType.findFirst({
-      where: { id: parseInt(houseTypeId), OR: [{ userId }, { userId: null }] },
+      where: { id: parseInt(houseTypeId), organizationId: orgId },
     });
     if (!houseType) return Response.json({ error: 'House type not found' }, { status: 400 });
 
     const unit = await prisma.unit.findFirst({
-      where: { id: parseInt(unitId), OR: [{ userId }, { userId: null }] },
+      where: { id: parseInt(unitId), organizationId: orgId },
     });
     if (!unit) return Response.json({ error: 'Unit not found' }, { status: 400 });
 
@@ -58,17 +58,18 @@ export async function POST(request: Request) {
     const tenant = await prisma.$transaction(async (tx) => {
       const created = await tx.tenant.create({
         data: {
+          organizationId:   orgId,
           userId,
           name,
           phone,
           houseTypeId:      parseInt(houseTypeId),
           unitId:           parseInt(unitId),
           moveInDate:       moveIn,
-          idNumber:         idNumber        || null,
-          country:          country         || null,
+          idNumber:         idNumber         || null,
+          country:          country          || null,
           emergencyContact: emergencyContact || null,
-          emergencyPhone:   emergencyPhone  || null,
-          householdCount:   householdCount  ? parseInt(householdCount) : 1,
+          emergencyPhone:   emergencyPhone   || null,
+          householdCount:   householdCount   ? parseInt(householdCount) : 1,
           householdMembers: householdMembers || null,
         },
         include: { houseType: true, unit: true },
@@ -79,9 +80,9 @@ export async function POST(request: Request) {
         data:  { status: 'OCCUPIED' },
       });
 
-      // Auto-create deposit record using the unit's depositMonths setting
       await tx.payment.create({
         data: {
+          organizationId: orgId,
           userId,
           tenantId:    created.id,
           unitId:      parseInt(unitId),

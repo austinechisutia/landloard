@@ -1,32 +1,27 @@
 import { prisma } from '@/lib/prisma';
 import { logAudit } from '@/lib/audit';
-import { requireUserId } from '@/lib/current-user';
-
-const ownedOrLegacy = (id: number, userId: string) => ({
-  id,
-  OR: [{ userId }, { userId: null }],
-});
+import { requireOrgMutation } from '@/lib/current-user';
 
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const userId = await requireUserId();
+    const { userId, orgId } = await requireOrgMutation(request);
     const { id } = await params;
     const { name, type, unitPrice, unitLabel, active } = await request.json();
 
-    const existing = await prisma.service.findFirst({ where: ownedOrLegacy(parseInt(id), userId) });
+    const existing = await prisma.service.findFirst({ where: { id: parseInt(id), organizationId: orgId } });
     if (!existing) return Response.json({ error: 'Service not found' }, { status: 404 });
 
     const service = await prisma.service.update({
       where: { id: parseInt(id) },
       data: {
-        ...(name       !== undefined && { name }),
-        ...(type       !== undefined && { type }),
-        ...(unitPrice  !== undefined && { unitPrice }),
-        ...(unitLabel  !== undefined && { unitLabel: unitLabel || null }),
-        ...(active     !== undefined && { active }),
+        ...(name      !== undefined && { name }),
+        ...(type      !== undefined && { type }),
+        ...(unitPrice !== undefined && { unitPrice }),
+        ...(unitLabel !== undefined && { unitLabel: unitLabel || null }),
+        ...(active    !== undefined && { active }),
       },
     });
     await logAudit({ userId, action: 'UPDATE', entity: 'Service', entityId: String(service.id), detail: service.name });
@@ -38,13 +33,13 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const userId = await requireUserId();
+    const { userId, orgId } = await requireOrgMutation(request);
     const { id } = await params;
-    const existing = await prisma.service.findFirst({ where: ownedOrLegacy(parseInt(id), userId) });
+    const existing = await prisma.service.findFirst({ where: { id: parseInt(id), organizationId: orgId } });
     if (!existing) return Response.json({ error: 'Service not found' }, { status: 404 });
 
     await prisma.service.delete({ where: { id: parseInt(id) } });

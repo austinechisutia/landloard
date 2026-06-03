@@ -1,12 +1,12 @@
 import { prisma } from '@/lib/prisma';
 import { logAudit } from '@/lib/audit';
-import { requireUserId } from '@/lib/current-user';
+import { requireOrgId, requireOrgMutation } from '@/lib/current-user';
 
 export async function GET() {
   try {
-    const userId = await requireUserId();
+    const { orgId } = await requireOrgId();
     const houseTypes = await prisma.houseType.findMany({
-      where: { userId },
+      where: { organizationId: orgId },
       orderBy: { createdAt: 'asc' },
       include: { _count: { select: { units: true } } },
     });
@@ -19,13 +19,13 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const userId = await requireUserId();
+    const { userId, orgId } = await requireOrgMutation(request);
     const { name, rentAmount } = await request.json();
     if (!name || rentAmount == null) {
       return Response.json({ error: 'name and rentAmount are required' }, { status: 400 });
     }
     const houseType = await prisma.houseType.create({
-      data: { name, rentAmount, userId },
+      data: { name, rentAmount, organizationId: orgId, userId },
     });
     await logAudit({ userId, action: 'CREATE', entity: 'HouseType', entityId: String(houseType.id), detail: houseType.name });
     return Response.json(houseType, { status: 201 });

@@ -82,13 +82,21 @@ export async function POST(req: NextRequest) {
 
     const passwordHash = await bcrypt.hash(password, 12);
 
-    await prisma.user.create({
-      data: {
-        name: (name as string).trim(),
-        email: normalizedEmail,
-        passwordHash,
-        country: (country as string).trim(),
-      },
+    await prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          name: (name as string).trim(),
+          email: normalizedEmail,
+          passwordHash,
+          country: (country as string).trim(),
+        },
+      });
+      const org = await tx.organization.create({
+        data: { name: (name as string).trim() },
+      });
+      await tx.orgMember.create({
+        data: { organizationId: org.id, userId: user.id, role: 'OWNER' },
+      });
     });
 
     let verificationSent = false;

@@ -6,15 +6,57 @@ datasource db {
   provider = "postgresql"
 }
 
-model HouseType {
-  id         Int       @id @default(autoincrement())
-  userId     String?
-  user       User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+// ─── Organization (tenancy root) ────────────────────────────────────────────
+
+model Organization {
+  id         String      @id @default(cuid())
   name       String
-  rentAmount Decimal   @db.Decimal(10, 2)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  members    OrgMember[]
+  houseTypes HouseType[]
   units      Unit[]
   tenants    Tenant[]
-  createdAt  DateTime  @default(now())
+  payments   Payment[]
+  services   Service[]
+}
+
+enum OrgRole {
+  OWNER
+  MANAGER
+  TECHNICIAN
+}
+
+model OrgMember {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           OrgRole      @default(MANAGER)
+  createdAt      DateTime     @default(now())
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@index([organizationId])
+}
+
+// ─── Core property models ────────────────────────────────────────────────────
+
+model HouseType {
+  id             Int          @id @default(autoincrement())
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String?
+  user           User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name           String
+  rentAmount     Decimal      @db.Decimal(10, 2)
+  units          Unit[]
+  tenants        Tenant[]
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId])
+  @@index([userId])
 }
 
 enum UnitStatus {
@@ -23,38 +65,51 @@ enum UnitStatus {
 }
 
 model Unit {
-  id            Int        @id @default(autoincrement())
-  userId        String?
-  user          User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name          String
-  status        UnitStatus @default(VACANT)
-  depositMonths Int        @default(1)
-  houseTypeId   Int
-  houseType     HouseType  @relation(fields: [houseTypeId], references: [id])
-  tenants       Tenant[]
-  payments      Payment[]
-  createdAt     DateTime   @default(now())
+  id             Int          @id @default(autoincrement())
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String?
+  user           User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name           String
+  status         UnitStatus   @default(VACANT)
+  depositMonths  Int          @default(1)
+  houseTypeId    Int
+  houseType      HouseType    @relation(fields: [houseTypeId], references: [id])
+  tenants        Tenant[]
+  payments       Payment[]
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([houseTypeId])
+  @@index([status])
 }
 
 model Tenant {
-  id                Int       @id @default(autoincrement())
-  userId            String?
-  user              User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name              String
-  phone             String
-  houseTypeId       Int
-  houseType         HouseType @relation(fields: [houseTypeId], references: [id])
-  unitId            Int
-  unit              Unit      @relation(fields: [unitId], references: [id])
-  moveInDate        DateTime
-  idNumber          String?
-  country           String?
-  emergencyContact  String?
-  emergencyPhone    String?
-  householdCount    Int       @default(1)
-  householdMembers  String?
-  payments          Payment[]
-  createdAt         DateTime  @default(now())
+  id               Int          @id @default(autoincrement())
+  organizationId   String?
+  organization     Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId           String?
+  user             User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name             String
+  phone            String
+  houseTypeId      Int
+  houseType        HouseType    @relation(fields: [houseTypeId], references: [id])
+  unitId           Int
+  unit             Unit         @relation(fields: [unitId], references: [id])
+  moveInDate       DateTime
+  idNumber         String?
+  country          String?
+  emergencyContact String?
+  emergencyPhone   String?
+  householdCount   Int          @default(1)
+  householdMembers String?
+  payments         Payment[]
+  createdAt        DateTime     @default(now())
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([unitId])
 }
 
 enum PaymentStatus {
@@ -68,24 +123,36 @@ enum PaymentType {
 }
 
 model Payment {
-  id          Int              @id @default(autoincrement())
-  userId      String?
-  user        User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tenantId    Int
-  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  unitId      Int
-  unit        Unit             @relation(fields: [unitId], references: [id])
-  paymentType PaymentType      @default(RENT)
-  period      DateTime?
-  rentAmount  Decimal          @db.Decimal(10, 2) @default(0)
-  amountDue   Decimal          @db.Decimal(10, 2)
-  amountPaid  Decimal          @db.Decimal(10, 2) @default(0)
-  balance     Decimal          @db.Decimal(10, 2)
-  status      PaymentStatus    @default(PENDING)
-  dueDate     DateTime
-  paymentDate DateTime?
-  services    PaymentService[]
-  createdAt   DateTime         @default(now())
+  id             Int              @id @default(autoincrement())
+  organizationId String?
+  organization   Organization?    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String?
+  user           User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenantId       Int
+  tenant         Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  unitId         Int
+  unit           Unit             @relation(fields: [unitId], references: [id])
+  paymentType    PaymentType      @default(RENT)
+  period         DateTime?
+  rentAmount     Decimal          @db.Decimal(10, 2) @default(0)
+  amountDue      Decimal          @db.Decimal(10, 2)
+  amountPaid     Decimal          @db.Decimal(10, 2) @default(0)
+  balance        Decimal          @db.Decimal(10, 2)
+  status         PaymentStatus    @default(PENDING)
+  dueDate        DateTime
+  paymentDate    DateTime?
+  services       PaymentService[]
+  createdAt      DateTime         @default(now())
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([tenantId])
+  @@index([unitId])
+  @@index([status])
+  @@index([dueDate])
+  @@index([period])
+  @@index([organizationId, status])
+  @@index([tenantId, paymentType, period])
 }
 
 enum ServiceType {
@@ -94,17 +161,24 @@ enum ServiceType {
 }
 
 model Service {
-  id        Int              @id @default(autoincrement())
-  userId    String?
-  user      User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name      String
-  type      ServiceType      @default(FIXED)
-  unitPrice Decimal          @db.Decimal(10, 2)
-  unitLabel String?
-  active    Boolean          @default(true)
-  charges   PaymentService[]
-  createdAt DateTime         @default(now())
+  id             Int              @id @default(autoincrement())
+  organizationId String?
+  organization   Organization?    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String?
+  user           User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name           String
+  type           ServiceType      @default(FIXED)
+  unitPrice      Decimal          @db.Decimal(10, 2)
+  unitLabel      String?
+  active         Boolean          @default(true)
+  charges        PaymentService[]
+  createdAt      DateTime         @default(now())
+
+  @@index([organizationId])
+  @@index([userId])
 }
+
+// ─── Auth & audit ────────────────────────────────────────────────────────────
 
 enum UserRole {
   USER
@@ -112,35 +186,36 @@ enum UserRole {
 }
 
 model User {
-  id            String      @id @default(cuid())
-  name          String?
-  email         String?     @unique
-  emailVerified DateTime?
-  image         String?
-  passwordHash  String?
-  role          UserRole    @default(USER)
-  country       String?
+  id                String      @id @default(cuid())
+  name              String?
+  email             String?     @unique
+  emailVerified     DateTime?
+  image             String?
+  passwordHash      String?
+  role              UserRole    @default(USER)
+  country           String?
   lastLoginAt       DateTime?
   passwordChangedAt DateTime?
   deletedAt         DateTime?
-  accounts      Account[]
-  sessions      Session[]
-  auditLogs     AuditLog[]
-  houseTypes    HouseType[]
-  units         Unit[]
-  tenants       Tenant[]
-  payments      Payment[]
-  services      Service[]
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  accounts          Account[]
+  sessions          Session[]
+  auditLogs         AuditLog[]
+  orgMemberships    OrgMember[]
+  houseTypes        HouseType[]
+  units             Unit[]
+  tenants           Tenant[]
+  payments          Payment[]
+  services          Service[]
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
 }
 
 model AuditLog {
   id        Int      @id @default(autoincrement())
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  action    String   // CREATE | UPDATE | DELETE
-  entity    String   // Tenant | Unit | Payment | HouseType | Service
+  action    String
+  entity    String
   entityId  String
   detail    String?
   createdAt DateTime @default(now())
@@ -200,11 +275,14 @@ model RateLimitAttempt {
 }
 
 model PaymentService {
-  id        Int     @id @default(autoincrement())
+  id        Int      @id @default(autoincrement())
   paymentId Int
-  payment   Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  payment   Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
   serviceId Int
-  service   Service @relation(fields: [serviceId], references: [id])
+  service   Service  @relation(fields: [serviceId], references: [id])
   units     Decimal? @db.Decimal(10, 2)
   amount    Decimal  @db.Decimal(10, 2)
+
+  @@index([paymentId])
+  @@index([serviceId])
 }

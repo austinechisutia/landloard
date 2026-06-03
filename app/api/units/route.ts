@@ -1,18 +1,18 @@
 import { prisma } from '@/lib/prisma';
 import { UnitStatus } from '@prisma/client';
 import { logAudit } from '@/lib/audit';
-import { requireUserId } from '@/lib/current-user';
+import { requireOrgId, requireOrgMutation } from '@/lib/current-user';
 
 export async function GET(request: Request) {
   try {
-    const userId = await requireUserId();
+    const { orgId } = await requireOrgId();
     const { searchParams } = new URL(request.url);
     const typeId = searchParams.get('typeId');
     const status = searchParams.get('status') as UnitStatus | null;
 
     const units = await prisma.unit.findMany({
       where: {
-        userId,
+        organizationId: orgId,
         ...(typeId ? { houseTypeId: parseInt(typeId) } : {}),
         ...(status ? { status } : {}),
       },
@@ -28,15 +28,15 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const userId = await requireUserId();
+    const { userId, orgId } = await requireOrgMutation(request);
     let body: Record<string, unknown>;
     try {
       body = await request.json();
     } catch {
       return Response.json({ error: 'Request body is required' }, { status: 400 });
     }
-    const name         = String(body.name         ?? '');
-    const houseTypeId  = String(body.houseTypeId  ?? '');
+    const name          = String(body.name         ?? '');
+    const houseTypeId   = String(body.houseTypeId  ?? '');
     const depositMonths = body.depositMonths != null ? String(body.depositMonths) : '';
 
     if (!name || !houseTypeId) {
@@ -44,7 +44,7 @@ export async function POST(request: Request) {
     }
 
     const houseType = await prisma.houseType.findFirst({
-      where: { id: parseInt(houseTypeId), OR: [{ userId }, { userId: null }] },
+      where: { id: parseInt(houseTypeId), organizationId: orgId },
     });
     if (!houseType) {
       return Response.json({ error: 'House type not found' }, { status: 404 });
@@ -52,6 +52,7 @@ export async function POST(request: Request) {
 
     const unit = await prisma.unit.create({
       data: {
+        organizationId: orgId,
         userId,
         name,
         houseTypeId:   parseInt(houseTypeId),

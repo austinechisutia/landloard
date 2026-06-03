@@ -1,9 +1,9 @@
 import { prisma } from '@/lib/prisma';
-import { requireUserId } from '@/lib/current-user';
+import { requireOrgId } from '@/lib/current-user';
 
 export async function GET() {
   try {
-    const userId = await requireUserId();
+    const { orgId } = await requireOrgId();
     const now        = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const monthEnd   = new Date(now.getFullYear(), now.getMonth() + 1, 1);
@@ -17,19 +17,19 @@ export async function GET() {
       pendingAgg,
       totalPayments,
     ] = await Promise.all([
-      prisma.unit.count({ where: { userId } }),
-      prisma.unit.count({ where: { userId, status: 'OCCUPIED' } }),
-      prisma.tenant.count({ where: { userId } }),
+      prisma.unit.count({ where: { organizationId: orgId } }),
+      prisma.unit.count({ where: { organizationId: orgId, status: 'OCCUPIED' } }),
+      prisma.tenant.count({ where: { organizationId: orgId } }),
 
       prisma.payment.aggregate({
         _sum: { amountPaid: true },
-        where: { userId },
+        where: { organizationId: orgId },
       }),
 
       prisma.payment.aggregate({
         _sum: { amountPaid: true },
         where: {
-          userId,
+          organizationId: orgId,
           OR: [
             { paymentDate: { gte: monthStart, lt: monthEnd } },
             { paymentDate: null, createdAt: { gte: monthStart, lt: monthEnd } },
@@ -39,10 +39,10 @@ export async function GET() {
 
       prisma.payment.aggregate({
         _sum: { balance: true },
-        where: { userId, status: 'PENDING' },
+        where: { organizationId: orgId, status: 'PENDING' },
       }),
 
-      prisma.payment.count({ where: { userId } }),
+      prisma.payment.count({ where: { organizationId: orgId } }),
     ]);
 
     return Response.json({

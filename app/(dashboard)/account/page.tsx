@@ -1,15 +1,10 @@
-import { getServerSession } from 'next-auth';
 import { redirect } from 'next/navigation';
 import type { AuditLog } from '@prisma/client';
-import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { requireSession } from '@/lib/current-user';
 
 export default async function AccountPage() {
-  const session = await getServerSession(authOptions);
-
-  if (!session?.user?.id) {
-    redirect('/login');
-  }
+  const session = await requireSession();
 
   const [user, auditLogs] = await Promise.all([
     prisma.user.findUnique({

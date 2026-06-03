@@ -75,6 +75,18 @@ export const authOptions: NextAuthOptions = {
             data: { lastLoginAt: new Date() },
           });
         } catch { /* ignore */ }
+        // Ensure OAuth users (Google) get an organization on first sign-in
+        try {
+          const memberCount = await prisma.orgMember.count({ where: { userId: user.id } });
+          if (memberCount === 0) {
+            const org = await prisma.organization.create({
+              data: { name: user.name ?? user.email?.split('@')[0] ?? 'My Organization' },
+            });
+            await prisma.orgMember.create({
+              data: { organizationId: org.id, userId: user.id, role: 'OWNER' },
+            });
+          }
+        } catch { /* ignore — org creation failure should not break login */ }
       }
       // Always sync role from DB so role changes take effect without re-login
       if (token.sub) {

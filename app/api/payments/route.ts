@@ -1,16 +1,16 @@
 import { prisma } from '@/lib/prisma';
 import { PaymentStatus } from '@prisma/client';
 import { logAudit } from '@/lib/audit';
-import { requireUserId } from '@/lib/current-user';
+import { requireOrgId, requireOrgMutation } from '@/lib/current-user';
 
 export async function GET(request: Request) {
   try {
-    const userId = await requireUserId();
+    const { orgId } = await requireOrgId();
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status') as PaymentStatus | null;
 
     const payments = await prisma.payment.findMany({
-      where: { userId, ...(status ? { status } : {}) },
+      where: { organizationId: orgId, ...(status ? { status } : {}) },
       include: {
         tenant: true,
         unit: { include: { houseType: true } },
@@ -27,13 +27,12 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const userId = await requireUserId();
+    const { userId, orgId } = await requireOrgMutation(request);
     const { tenantId, unitId, period, rentAmount, dueDate, paymentDate, amountPaid, serviceCharges, customAmount } = await request.json();
     if (!tenantId || !unitId || !rentAmount || !dueDate) {
       return Response.json({ error: 'tenantId, unitId, rentAmount and dueDate are required' }, { status: 400 });
     }
 
-    // serviceCharges: [{ serviceId, units?, amount }]
     const charges: { serviceId: number; units?: number; amount: number }[] = serviceCharges ?? [];
     const servicesTotal = charges.reduce((sum: number, c: { amount: number }) => sum + Number(c.amount), 0);
 
@@ -44,7 +43,6 @@ export async function POST(request: Request) {
     const balance = due - paid;
     const status: PaymentStatus = paid >= due ? 'PAID' : 'PENDING';
 
-    // Parse period 'YYYY-MM' into a UTC date for the period column
     let periodDate: Date | null = null;
     if (period) {
       const [yr, mo] = (period as string).split('-').map(Number);
@@ -53,6 +51,7 @@ export async function POST(request: Request) {
 
     const payment = await prisma.payment.create({
       data: {
+        organizationId: orgId,
         userId,
         tenantId:    parseInt(tenantId),
         unitId:      parseInt(unitId),

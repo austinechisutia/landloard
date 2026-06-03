@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { PaymentStatus } from '@prisma/client';
-import { requireUserId } from '@/lib/current-user';
+import { requireOrgId, requireOrgMutation } from '@/lib/current-user';
 
 function periodStart(year: number, month: number) {
   return new Date(Date.UTC(year, month, 1));
@@ -11,7 +11,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const userId = await requireUserId();
+    const { orgId } = await requireOrgId();
     const { id } = await params;
     const tenantId = parseInt(id);
 
@@ -19,12 +19,14 @@ export async function GET(
       where: { id: tenantId },
       include: { houseType: true, unit: true },
     });
-    if (!tenant || tenant.userId !== userId) return Response.json({ error: 'Tenant not found' }, { status: 404 });
+    if (!tenant || tenant.organizationId !== orgId) {
+      return Response.json({ error: 'Tenant not found' }, { status: 404 });
+    }
 
     const rentAmount = Number(tenant.houseType.rentAmount);
 
     const payments = await prisma.payment.findMany({
-      where: { tenantId, userId },
+      where: { tenantId, organizationId: orgId },
       include: { services: { include: { service: true } } },
       orderBy: [{ paymentType: 'asc' }, { period: 'asc' }, { dueDate: 'asc' }],
     });
@@ -59,13 +61,13 @@ export async function GET(
 
     return Response.json({
       tenant: {
-        id:           tenant.id,
-        name:         tenant.name,
+        id:            tenant.id,
+        name:          tenant.name,
         rentAmount,
         depositMonths: tenant.unit.depositMonths,
         depositAmount: rentAmount * tenant.unit.depositMonths,
-        moveInDate:   tenant.moveInDate,
-        unit:         tenant.unit.name,
+        moveInDate:    tenant.moveInDate,
+        unit:          tenant.unit.name,
       },
       entries,
       summary: { totalDue, totalPaid, totalBalance },
@@ -82,17 +84,19 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { orgId, userId } = await requireOrgMutation(request);
     const { id } = await params;
     const tenantId = parseInt(id);
     const { target, amount, paymentDate, customAmount } = await request.json();
     const custom = Number(customAmount) || 0;
-    // target: 'DEPOSIT' | 'YYYY-MM'
 
     const tenant = await prisma.tenant.findUnique({
       where: { id: tenantId },
       include: { houseType: true },
     });
-    if (!tenant) return Response.json({ error: 'Tenant not found' }, { status: 404 });
+    if (!tenant || tenant.organizationId !== orgId) {
+      return Response.json({ error: 'Tenant not found' }, { status: 404 });
+    }
 
     const rentAmount = Number(tenant.houseType.rentAmount);
     const paid       = Number(amount);
@@ -104,7 +108,7 @@ export async function POST(
 
     if (target === 'DEPOSIT') {
       const existing = await prisma.payment.findFirst({
-        where: { tenantId, paymentType: 'DEPOSIT' },
+        where: { tenantId, paymentType: 'DEPOSIT', organizationId: orgId },
       });
 
       if (existing) {
@@ -128,6 +132,8 @@ export async function POST(
         const newStatus  = newBalance <= 0 ? 'PAID' : 'PENDING';
         const created    = await prisma.payment.create({
           data: {
+            organizationId: orgId,
+            userId,
             tenantId,
             unitId:      tenant.unitId ?? 0,
             paymentType: 'DEPOSIT',
@@ -144,16 +150,16 @@ export async function POST(
       }
     }
 
-    // RENT — distribute across all pending months oldest-first up to and including target
     const [yearStr, monthStr] = (target as string).split('-');
     const year  = parseInt(yearStr);
-    const month = parseInt(monthStr) - 1; // 0-based
+    const month = parseInt(monthStr) - 1;
 
     const targetPeriodDate = periodStart(year, month);
 
     const existingRentPayments = await prisma.payment.findMany({
       where: {
         tenantId,
+        organizationId: orgId,
         paymentType: 'RENT',
         period: { lte: targetPeriodDate },
       },
@@ -204,7 +210,7 @@ export async function POST(
 
         const newPaid    = currentPaid + toApply;
         const newBalance = isTarget ? amountDue - newPaid : Math.max(0, amountDue - newPaid);
-        const newStatus: PaymentStatus  = newPaid >= amountDue ? 'PAID' : 'PENDING';
+        const newStatus: PaymentStatus = newPaid >= amountDue ? 'PAID' : 'PENDING';
 
         if (pmt) {
           await tx.payment.update({
@@ -214,6 +220,8 @@ export async function POST(
         } else {
           await tx.payment.create({
             data: {
+              organizationId: orgId,
+              userId,
               tenantId,
               unitId:      tenant.unitId,
               paymentType: 'RENT',

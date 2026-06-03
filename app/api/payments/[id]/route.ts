@@ -1,23 +1,18 @@
 import { prisma } from '@/lib/prisma';
 import { PaymentStatus } from '@prisma/client';
 import { logAudit } from '@/lib/audit';
-import { requireUserId } from '@/lib/current-user';
-
-const ownedOrLegacy = (id: number, userId: string) => ({
-  id,
-  OR: [{ userId }, { userId: null }],
-});
+import { requireOrgMutation } from '@/lib/current-user';
 
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const userId = await requireUserId();
+    const { userId, orgId } = await requireOrgMutation(request);
     const { id } = await params;
     const { rentAmount, amountDue, amountPaid, dueDate, paymentDate, status: statusOverride, serviceCharges } = await request.json();
 
-    const existing = await prisma.payment.findFirst({ where: ownedOrLegacy(parseInt(id), userId) });
+    const existing = await prisma.payment.findFirst({ where: { id: parseInt(id), organizationId: orgId } });
     if (!existing) return Response.json({ error: 'Payment not found' }, { status: 404 });
 
     const charges: { serviceId: number; units?: number; amount: number }[] = serviceCharges ?? [];
@@ -48,7 +43,7 @@ export async function PATCH(
         amountPaid: paid,
         balance,
         status,
-        dueDate:     new Date(dueDate),
+        ...(dueDate != null && { dueDate: new Date(dueDate) }),
         paymentDate: paymentDate ? new Date(paymentDate) : null,
         ...servicesUpdate,
       },
@@ -67,14 +62,14 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const userId = await requireUserId();
+    const { userId, orgId } = await requireOrgMutation(request);
     const { id } = await params;
     const existing = await prisma.payment.findFirst({
-      where: ownedOrLegacy(parseInt(id), userId),
+      where: { id: parseInt(id), organizationId: orgId },
       include: { tenant: true },
     });
     if (!existing) return Response.json({ error: 'Payment not found' }, { status: 404 });

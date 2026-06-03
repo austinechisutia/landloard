@@ -1,15 +1,15 @@
 import { prisma } from '@/lib/prisma';
-import { requireUserId } from '@/lib/current-user';
+import { requireOrgId } from '@/lib/current-user';
 
 export async function GET(request: Request) {
   try {
-    const userId = await requireUserId();
+    const { orgId } = await requireOrgId();
     const { searchParams } = new URL(request.url);
     const tenantIdParam = searchParams.get('tenantId');
     const tenantIdFilter = tenantIdParam ? { id: parseInt(tenantIdParam) } : {};
 
     const tenants = await prisma.tenant.findMany({
-      where: { userId, ...tenantIdFilter },
+      where: { organizationId: orgId, ...tenantIdFilter },
       include: {
         houseType: true,
         unit: true,
@@ -22,7 +22,6 @@ export async function GET(request: Request) {
     });
 
     const now = new Date();
-    // Show up to and including the current month only
     const currentPeriod = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 
     const schedule = tenants.map(tenant => {
@@ -46,7 +45,6 @@ export async function GET(request: Request) {
         paymentDate:   string | null;
       }[] = [];
 
-      // --- Deposit row ---
       const depositPayment = tenant.payments.find(p => p.paymentType === 'DEPOSIT');
       rows.push({
         type:          'DEPOSIT',
@@ -64,7 +62,6 @@ export async function GET(request: Request) {
         paymentDate:   depositPayment?.paymentDate?.toISOString() ?? null,
       });
 
-      // --- Monthly rent rows from move-in to current month ---
       let cur        = new Date(Date.UTC(moveIn.getUTCFullYear(), moveIn.getUTCMonth(), 1));
       let monthIndex = 1;
 
@@ -114,11 +111,11 @@ export async function GET(request: Request) {
       const totalBalance = rows.reduce((s, r) => s + r.balance,    0);
 
       return {
-        id:           tenant.id,
-        name:         tenant.name,
-        unitId:       tenant.unitId,
-        unitName:     tenant.unit.name,
-        moveInDate:   tenant.moveInDate.toISOString(),
+        id:            tenant.id,
+        name:          tenant.name,
+        unitId:        tenant.unitId,
+        unitName:      tenant.unit.name,
+        moveInDate:    tenant.moveInDate.toISOString(),
         rentAmount,
         depositMonths: tenant.unit.depositMonths,
         depositAmount,

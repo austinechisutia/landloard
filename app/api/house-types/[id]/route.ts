@@ -1,25 +1,20 @@
 import { prisma } from '@/lib/prisma';
 import { logAudit } from '@/lib/audit';
-import { requireUserId } from '@/lib/current-user';
-
-const ownedOrLegacy = (id: number, userId: string) => ({
-  id,
-  OR: [{ userId }, { userId: null }],
-});
+import { requireOrgMutation } from '@/lib/current-user';
 
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const userId = await requireUserId();
+    const { userId, orgId } = await requireOrgMutation(request);
     const { id } = await params;
     const { name, rentAmount } = await request.json();
     if (!name || rentAmount == null) {
       return Response.json({ error: 'name and rentAmount are required' }, { status: 400 });
     }
 
-    const existing = await prisma.houseType.findFirst({ where: ownedOrLegacy(parseInt(id), userId) });
+    const existing = await prisma.houseType.findFirst({ where: { id: parseInt(id), organizationId: orgId } });
     if (!existing) return Response.json({ error: 'House type not found' }, { status: 404 });
 
     const houseType = await prisma.houseType.update({
@@ -35,13 +30,13 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const userId = await requireUserId();
+    const { userId, orgId } = await requireOrgMutation(request);
     const { id } = await params;
-    const existing = await prisma.houseType.findFirst({ where: ownedOrLegacy(parseInt(id), userId) });
+    const existing = await prisma.houseType.findFirst({ where: { id: parseInt(id), organizationId: orgId } });
     if (!existing) return Response.json({ error: 'House type not found' }, { status: 404 });
 
     await prisma.houseType.delete({ where: { id: parseInt(id) } });

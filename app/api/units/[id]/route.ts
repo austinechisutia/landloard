@@ -1,30 +1,25 @@
 import { prisma } from '@/lib/prisma';
 import { UnitStatus } from '@prisma/client';
 import { logAudit } from '@/lib/audit';
-import { requireUserId } from '@/lib/current-user';
-
-const ownedOrLegacy = (id: number, userId: string) => ({
-  id,
-  OR: [{ userId }, { userId: null }],
-});
+import { requireOrgMutation } from '@/lib/current-user';
 
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const userId = await requireUserId();
+    const { userId, orgId } = await requireOrgMutation(request);
     const { id } = await params;
     const { status, name, depositMonths } = await request.json();
 
-    const existing = await prisma.unit.findFirst({ where: ownedOrLegacy(parseInt(id), userId) });
+    const existing = await prisma.unit.findFirst({ where: { id: parseInt(id), organizationId: orgId } });
     if (!existing) return Response.json({ error: 'Unit not found' }, { status: 404 });
 
     const unit = await prisma.unit.update({
       where: { id: parseInt(id) },
       data: {
-        ...(status       ? { status: status as UnitStatus } : {}),
-        ...(name         ? { name }                         : {}),
+        ...(status        ? { status: status as UnitStatus }            : {}),
+        ...(name          ? { name }                                    : {}),
         ...(depositMonths !== undefined ? { depositMonths: parseInt(depositMonths) } : {}),
       },
       include: { houseType: true },
@@ -38,13 +33,13 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const userId = await requireUserId();
+    const { userId, orgId } = await requireOrgMutation(request);
     const { id } = await params;
-    const existing = await prisma.unit.findFirst({ where: ownedOrLegacy(parseInt(id), userId) });
+    const existing = await prisma.unit.findFirst({ where: { id: parseInt(id), organizationId: orgId } });
     if (!existing) return Response.json({ error: 'Unit not found' }, { status: 404 });
 
     await prisma.unit.delete({ where: { id: parseInt(id) } });
