@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma';
+import { revalidateTag } from 'next/cache';
 import { logAudit } from '@/lib/audit';
 import { requireOrgMutation } from '@/lib/current-user';
 
@@ -84,6 +85,7 @@ export async function DELETE(
     });
 
     await logAudit({ userId, action: 'DELETE', entity: 'Tenant', entityId: id, detail: tenant.name });
+    revalidateTag(`schedule:${orgId}`, {});
     return Response.json({ ok: true });
   } catch (error) {
     if (error instanceof Response) return error;

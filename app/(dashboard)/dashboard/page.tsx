@@ -1,46 +1,47 @@
-'use client';
-import { useEffect, useState } from 'react';
-import { api } from '@/lib/api';
+import { prisma } from '@/lib/prisma';
+import { requireOrgIdForPage } from '@/lib/current-user';
 import StatsCard from '@/components/StatsCard';
-
-interface Stats {
-  totalUnits: number;
-  occupiedUnits: number;
-  vacantUnits: number;
-  totalTenants: number;
-  totalPayments: number;
-  totalRentPaid: number;
-  thisMonthRent: number;
-  totalPendingRent: number;
-}
-
-function fmt(n: number | undefined | null) {
-  return `KSh ${(n ?? 0).toLocaleString()}`;
-}
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-export default function DashboardPage() {
-  const [stats,   setStats]   = useState<Stats | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState('');
+function fmt(n: number) {
+  return `KSh ${n.toLocaleString()}`;
+}
 
-  useEffect(() => {
-    api.get<Stats>('/dashboard')
-      .then(setStats)
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false));
-  }, []);
+export default async function DashboardPage() {
+  const { orgId } = await requireOrgIdForPage();
 
-  if (loading) return (
-    <div className="flex items-center justify-center h-64 text-gray-400 text-sm">Loading dashboard…</div>
-  );
-  if (error) return (
-    <div className="flex items-center justify-center h-64 text-red-500 text-sm">{error}</div>
-  );
-  if (!stats) return null;
+  const now        = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const monthEnd   = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
-  const now = new Date();
+  const [
+    totalUnits,
+    occupiedUnits,
+    totalTenants,
+    allTimeAgg,
+    thisMonthAgg,
+    pendingAgg,
+    totalPayments,
+  ] = await Promise.all([
+    prisma.unit.count({ where: { organizationId: orgId } }),
+    prisma.unit.count({ where: { organizationId: orgId, status: 'OCCUPIED' } }),
+    prisma.tenant.count({ where: { organizationId: orgId } }),
+    prisma.payment.aggregate({ _sum: { amountPaid: true }, where: { organizationId: orgId } }),
+    prisma.payment.aggregate({
+      _sum: { amountPaid: true },
+      where: {
+        organizationId: orgId,
+        OR: [
+          { paymentDate: { gte: monthStart, lt: monthEnd } },
+          { paymentDate: null, createdAt: { gte: monthStart, lt: monthEnd } },
+        ],
+      },
+    }),
+    prisma.payment.aggregate({ _sum: { balance: true }, where: { organizationId: orgId, status: 'PENDING' } }),
+    prisma.payment.count({ where: { organizationId: orgId } }),
+  ]);
+
   const monthLabel = `${MONTHS[now.getMonth()]} ${now.getFullYear()}`;
 
   return (
@@ -51,22 +52,22 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-        <StatsCard title="Total Units"    value={stats.totalUnits}     color="blue"   />
-        <StatsCard title="Occupied"       value={stats.occupiedUnits}  color="green"  />
-        <StatsCard title="Vacant"         value={stats.vacantUnits}    color="yellow" />
-        <StatsCard title="Total Tenants"  value={stats.totalTenants}   color="blue"   />
-        <StatsCard title="Total Payments" value={stats.totalPayments}  color="blue"   />
+        <StatsCard title="Total Units"    value={totalUnits}    color="blue"   />
+        <StatsCard title="Occupied"       value={occupiedUnits} color="green"  />
+        <StatsCard title="Vacant"         value={totalUnits - occupiedUnits} color="yellow" />
+        <StatsCard title="Total Tenants"  value={totalTenants}  color="blue"   />
+        <StatsCard title="Total Payments" value={totalPayments} color="blue"   />
 
         <StatsCard
           title="Rent Collected"
-          value={fmt(stats.totalRentPaid)}
-          sub={`${monthLabel}: ${fmt(stats.thisMonthRent)}`}
+          value={fmt(Number(allTimeAgg._sum.amountPaid ?? 0))}
+          sub={`${monthLabel}: ${fmt(Number(thisMonthAgg._sum.amountPaid ?? 0))}`}
           color="green"
         />
 
         <StatsCard
           title="Pending Rent"
-          value={fmt(stats.totalPendingRent)}
+          value={fmt(Number(pendingAgg._sum.balance ?? 0))}
           sub="Outstanding balance across all pending payments"
           color="red"
         />

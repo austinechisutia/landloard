@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { PaymentStatus } from '@prisma/client';
+import { revalidateTag } from 'next/cache';
 import { requireOrgId, requireOrgMutation } from '@/lib/current-user';
 
 function periodStart(year: number, month: number) {
@@ -126,6 +127,7 @@ export async function POST(
             paymentDate: newStatus === 'PAID' ? paidAt : existing.paymentDate,
           },
         });
+        revalidateTag(`schedule:${orgId}`, {});
         return Response.json(updated);
       } else {
         const newBalance = rentAmount - paid;
@@ -146,6 +148,7 @@ export async function POST(
             paymentDate: newStatus === 'PAID' ? paidAt : null,
           },
         });
+        revalidateTag(`schedule:${orgId}`, {});
         return Response.json(created, { status: 201 });
       }
     }
@@ -188,59 +191,67 @@ export async function POST(
     let remaining = paid;
     const targetKey = `${year}-${String(month + 1).padStart(2, '0')}`;
 
-    await prisma.$transaction(async (tx) => {
-      for (const periodKey of periods) {
-        if (remaining <= 0) break;
+    // Phase 1: compute distribution in JS (no DB calls needed)
+    const updates: { id: number; data: { amountPaid: number; balance: number; status: PaymentStatus; paymentDate: Date } }[] = [];
+    const creates: {
+      organizationId: string; userId: string; tenantId: number; unitId: number;
+      paymentType: 'RENT'; period: Date; rentAmount: number; amountDue: number;
+      amountPaid: number; balance: number; status: PaymentStatus; dueDate: Date; paymentDate: Date;
+    }[] = [];
 
-        const [pYr, pMo] = periodKey.split('-').map(Number);
-        const pPeriodDate = periodStart(pYr, pMo - 1);
-        const pDueDate    = new Date(Date.UTC(pYr, pMo - 1, 10));
-        const isTarget    = periodKey === targetKey;
+    for (const periodKey of periods) {
+      if (remaining <= 0) break;
 
-        const pmt         = paymentByPeriod.get(periodKey);
-        const currentPaid = pmt ? Number(pmt.amountPaid) : 0;
-        const baseAmountDue = pmt ? Number(pmt.amountDue) : rentAmount;
-        const amountDue   = baseAmountDue + (isTarget ? custom : 0);
-        const outstanding = amountDue - currentPaid;
+      const [pYr, pMo] = periodKey.split('-').map(Number);
+      const pPeriodDate = periodStart(pYr, pMo - 1);
+      const pDueDate    = new Date(Date.UTC(pYr, pMo - 1, 10));
+      const isTarget    = periodKey === targetKey;
 
-        if (outstanding <= 0 && !isTarget) continue;
+      const pmt           = paymentByPeriod.get(periodKey);
+      const currentPaid   = pmt ? Number(pmt.amountPaid) : 0;
+      const baseAmountDue = pmt ? Number(pmt.amountDue) : rentAmount;
+      const amountDue     = baseAmountDue + (isTarget ? custom : 0);
+      const outstanding   = amountDue - currentPaid;
 
-        const toApply = isTarget ? remaining : Math.min(remaining, outstanding);
-        if (toApply <= 0) continue;
+      if (outstanding <= 0 && !isTarget) continue;
 
-        const newPaid    = currentPaid + toApply;
-        const newBalance = isTarget ? amountDue - newPaid : Math.max(0, amountDue - newPaid);
-        const newStatus: PaymentStatus = newPaid >= amountDue ? 'PAID' : 'PENDING';
+      const toApply    = isTarget ? remaining : Math.min(remaining, outstanding);
+      if (toApply <= 0) continue;
 
-        if (pmt) {
-          await tx.payment.update({
-            where: { id: pmt.id },
-            data: { amountPaid: newPaid, balance: newBalance, status: newStatus, paymentDate: paidAt },
-          });
-        } else {
-          await tx.payment.create({
-            data: {
-              organizationId: orgId,
-              userId,
-              tenantId,
-              unitId:      tenant.unitId,
-              paymentType: 'RENT',
-              period:      pPeriodDate,
-              rentAmount,
-              amountDue,
-              amountPaid:  toApply,
-              balance:     newBalance,
-              status:      newStatus,
-              dueDate:     pDueDate,
-              paymentDate: paidAt,
-            },
-          });
-        }
+      const newPaid    = currentPaid + toApply;
+      const newBalance = isTarget ? amountDue - newPaid : Math.max(0, amountDue - newPaid);
+      const newStatus: PaymentStatus = newPaid >= amountDue ? 'PAID' : 'PENDING';
 
-        remaining -= toApply;
+      if (pmt) {
+        updates.push({ id: pmt.id, data: { amountPaid: newPaid, balance: newBalance, status: newStatus, paymentDate: paidAt } });
+      } else {
+        creates.push({
+          organizationId: orgId,
+          userId,
+          tenantId,
+          unitId:      tenant.unitId,
+          paymentType: 'RENT',
+          period:      pPeriodDate,
+          rentAmount,
+          amountDue,
+          amountPaid:  toApply,
+          balance:     newBalance,
+          status:      newStatus,
+          dueDate:     pDueDate,
+          paymentDate: paidAt,
+        });
       }
-    });
 
+      remaining -= toApply;
+    }
+
+    // Phase 2: execute all in a single batched transaction
+    await prisma.$transaction([
+      ...updates.map(u => prisma.payment.update({ where: { id: u.id }, data: u.data })),
+      ...(creates.length > 0 ? [prisma.payment.createMany({ data: creates })] : []),
+    ]);
+
+    revalidateTag(`schedule:${orgId}`, {});
     return Response.json({ ok: true });
   } catch (err) {
     console.error(err);

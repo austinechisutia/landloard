@@ -10,7 +10,7 @@ import {
   getSafeCallbackPath,
   normalizeEmail,
 } from '@/lib/auth-utils';
-import { rateLimit } from '@/lib/rate-limit';
+import { rateLimit, getIPFromHeaders } from '@/lib/rate-limit';
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
@@ -28,7 +28,7 @@ export const authOptions: NextAuthOptions = {
         email: { label: 'Email', type: 'email' },
         password: { label: 'Password', type: 'password' },
       },
-      async authorize(credentials) {
+      async authorize(credentials, req) {
         if (!credentials?.email || !credentials?.password) {
           throw new Error('Invalid email or password.');
         }
@@ -38,6 +38,13 @@ export const authOptions: NextAuthOptions = {
         }
 
         const email = normalizeEmail(credentials.email);
+
+        const ip = getIPFromHeaders(req?.headers as Record<string, unknown> | undefined);
+        const ipAllowed = await rateLimit(`login:ip:${ip}`, 20, 15 * 60);
+        if (!ipAllowed) {
+          throw new Error('Too many login attempts. Please try again in 15 minutes.');
+        }
+
         const allowed = await rateLimit(`login:${email}`, 10, 15 * 60);
         if (!allowed) {
           throw new Error('Too many login attempts. Please try again in 15 minutes.');

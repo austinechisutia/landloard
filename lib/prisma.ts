@@ -8,7 +8,7 @@ function createPrismaClient() {
     ? { rejectUnauthorized: false }
     : false;
 
-  const adapter = new PrismaPg({ connectionString, ssl: sslConfig });
+  const adapter = new PrismaPg({ connectionString, ssl: sslConfig, max: 10, idleTimeoutMillis: 30_000 });
   return new PrismaClient({ adapter });
 }
 

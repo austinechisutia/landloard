@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { PaymentStatus } from '@prisma/client';
+import { revalidateTag } from 'next/cache';
 import { logAudit } from '@/lib/audit';
 import { requireOrgId, requireOrgMutation } from '@/lib/current-user';
 
@@ -80,7 +81,7 @@ export async function POST(request: Request) {
     });
 
     await logAudit({ userId, action: 'CREATE', entity: 'Payment', entityId: String(payment.id), detail: `Tenant ${payment.tenant.name}` });
-
+    revalidateTag(`schedule:${orgId}`, {});
     return Response.json(payment, { status: 201 });
   } catch (error) {
     if (error instanceof Response) return error;

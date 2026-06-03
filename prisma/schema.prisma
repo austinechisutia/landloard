@@ -222,6 +222,7 @@ model AuditLog {
 
   @@index([userId])
   @@index([createdAt])
+  @@index([entity, entityId])
 }
 
 model Account {

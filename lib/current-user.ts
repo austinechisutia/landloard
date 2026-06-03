@@ -6,7 +6,7 @@ import { prisma } from '@/lib/prisma';
 import type { Session } from 'next-auth';
 
 const MAX_BODY_BYTES = 100 * 1024; // 100 KB
-const MUTATION_LIMIT = 120;        // requests per user per hour
+const MUTATION_LIMIT = 500;        // requests per user per hour
 const MUTATION_WINDOW = 60 * 60;
 
 export async function getCurrentUserId() {
@@ -87,4 +87,18 @@ export async function requireAdminSession(): Promise<Session> {
   const session = await requireSession();
   if (session.user.role !== 'ADMIN') redirect('/');
   return session;
+}
+
+// For org-scoped server pages — redirects to /login on failure
+export async function requireOrgIdForPage(): Promise<{ userId: string; orgId: string }> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) redirect('/login');
+  const userId = session.user.id;
+  const member = await prisma.orgMember.findFirst({
+    where:   { userId },
+    select:  { organizationId: true },
+    orderBy: { createdAt: 'asc' },
+  });
+  if (!member) redirect('/login');
+  return { userId, orgId: member.organizationId };
 }

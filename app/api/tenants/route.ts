@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma';
+import { revalidateTag } from 'next/cache';
 import { logAudit } from '@/lib/audit';
 import { requireOrgId, requireOrgMutation } from '@/lib/current-user';
 
@@ -100,7 +101,7 @@ export async function POST(request: Request) {
     });
 
     await logAudit({ userId, action: 'CREATE', entity: 'Tenant', entityId: String(tenant.id), detail: tenant.name });
-
+    revalidateTag(`schedule:${orgId}`, {});
     return Response.json(tenant, { status: 201 });
   } catch (err) {
     if (err instanceof Response) return err;

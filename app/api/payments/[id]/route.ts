@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { PaymentStatus } from '@prisma/client';
+import { revalidateTag } from 'next/cache';
 import { logAudit } from '@/lib/audit';
 import { requireOrgMutation } from '@/lib/current-user';
 
@@ -54,6 +55,7 @@ export async function PATCH(
       },
     });
     await logAudit({ userId, action: 'UPDATE', entity: 'Payment', entityId: String(payment.id), detail: `Tenant ${payment.tenant.name}` });
+    revalidateTag(`schedule:${orgId}`, {});
     return Response.json(payment);
   } catch (error) {
     if (error instanceof Response) return error;
@@ -76,6 +78,7 @@ export async function DELETE(
 
     await prisma.payment.delete({ where: { id: parseInt(id) } });
     await logAudit({ userId, action: 'DELETE', entity: 'Payment', entityId: id, detail: `Tenant ${existing.tenant.name}` });
+    revalidateTag(`schedule:${orgId}`, {});
     return Response.json({ ok: true });
   } catch (error) {
     if (error instanceof Response) return error;
